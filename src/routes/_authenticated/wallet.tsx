@@ -1,0 +1,116 @@
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { useState } from "react";
+import { toast } from "sonner";
+import { getWalletData, requestWithdrawal, getMyProfile } from "@/lib/app.functions";
+import { initiateStkPush } from "@/lib/mpesa.functions";
+import { ClientShell } from "@/components/layout/client-shell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+
+export const Route = createFileRoute("/_authenticated/wallet")({ component: WalletPage });
+
+const fmt = (n: any) => `KES ${Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+
+function WalletPage() {
+  const fn = useServerFn(getWalletData);
+  const profFn = useServerFn(getMyProfile);
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["wallet"], queryFn: () => fn() });
+  const { data: prof } = useQuery({ queryKey: ["profile"], queryFn: () => profFn() });
+  const stk = useServerFn(initiateStkPush);
+  const wd = useServerFn(requestWithdrawal);
+
+  const [depAmt, setDepAmt] = useState("");
+  const [wdAmt, setWdAmt] = useState("");
+  const phone = prof?.profile?.phone ?? "";
+
+  const deposit = useMutation({
+    mutationFn: async () => stk({ data: { amount: Number(depAmt) } }),
+    onSuccess: (r: any) => {
+      if (r?.status === "success") toast.success("Deposit received — wallet credited");
+      else if (r?.status === "failed") toast.error(r.message ?? "Payment not completed");
+      else toast.info("Check your phone for the M-Pesa prompt. Balance updates once you confirm.");
+      setDepAmt("");
+      qc.invalidateQueries({ queryKey: ["wallet"] });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Failed"),
+  });
+  const withdraw = useMutation({
+    mutationFn: async () => wd({ data: { amount: Number(wdAmt) } }),
+    onSuccess: (r: any) => { toast.success(`Sent KES ${r?.net ?? ""} to your M-Pesa`); setWdAmt(""); qc.invalidateQueries({ queryKey: ["wallet"] }); },
+    onError: (e: any) => toast.error(e.message ?? "Failed"),
+  });
+
+  return (
+    <ClientShell title="Wallet">
+      <div className="glass-card rounded-2xl p-5">
+        <div className="text-xs uppercase text-muted-foreground">Available balance</div>
+        <div className="mt-1 text-3xl font-bold">{fmt(data?.wallet?.balance)}</div>
+        <div className="mt-2 grid grid-cols-3 gap-3 text-xs text-muted-foreground">
+          <div>Deposited<br /><span className="text-foreground">{fmt(data?.wallet?.total_deposited)}</span></div>
+          <div>Earned<br /><span className="text-foreground">{fmt(data?.wallet?.total_earned)}</span></div>
+          <div>Withdrawn<br /><span className="text-foreground">{fmt(data?.wallet?.total_withdrawn)}</span></div>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        Registered M-Pesa number: <span className="font-medium text-foreground">{phone || "not set"}</span>
+        {!phone && <> · <Link to="/my" className="text-primary">Add it now</Link></>}
+      </div>
+
+      <Tabs defaultValue="deposit" className="mt-4">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="deposit">Deposit</TabsTrigger>
+          <TabsTrigger value="withdraw">Withdraw</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="deposit" className="glass-card mt-3 rounded-2xl p-4">
+          <div className="space-y-3">
+            <div><Label>Amount (KES)</Label><Input type="number" min={10} value={depAmt} onChange={(e) => setDepAmt(e.target.value)} /></div>
+            <Button onClick={() => deposit.mutate()} disabled={deposit.isPending || !depAmt || !phone} className="w-full gradient-gold">
+              {deposit.isPending ? "Sending prompt…" : "Send M-Pesa STK Push"}
+            </Button>
+            <p className="text-[11px] text-muted-foreground">The prompt will be sent to {phone || "your registered number"}.</p>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="withdraw" className="glass-card mt-3 rounded-2xl p-4">
+          <div className="space-y-3">
+            <div><Label>Amount (KES)</Label><Input type="number" min={100} value={wdAmt} onChange={(e) => setWdAmt(e.target.value)} /></div>
+            {Number(wdAmt) > 0 && (
+              <div className="rounded-lg bg-muted/40 px-3 py-2 text-xs">
+                <div className="flex justify-between"><span className="text-muted-foreground">Requested</span><span>{fmt(Number(wdAmt))}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Tax / processing fee (5%)</span><span>-{fmt(Number(wdAmt) * 0.05)}</span></div>
+                <div className="mt-1 flex justify-between border-t border-border/60 pt-1 font-medium"><span>You receive</span><span>{fmt(Number(wdAmt) * 0.95)}</span></div>
+              </div>
+            )}
+            <Button onClick={() => withdraw.mutate()} disabled={withdraw.isPending || !wdAmt || !phone} className="w-full" variant="secondary">
+              {withdraw.isPending ? "Requesting…" : "Request withdrawal"}
+            </Button>
+            <p className="text-[11px] text-muted-foreground">A 5% tax/compliance fee is deducted. Net amount is paid to {phone || "your registered number"} within 24 hours.</p>
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      <div className="mt-6">
+        <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">Transactions</h2>
+        <div className="space-y-2">
+          {(data?.transactions ?? []).length === 0 && <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No transactions yet.</div>}
+          {(data?.transactions ?? []).map((t: any) => (
+            <div key={t.id} className="flex items-center justify-between rounded-lg bg-card px-3 py-2 text-sm">
+              <div>
+                <div className="font-medium capitalize">{t.description ?? t.kind}</div>
+                <div className="text-[11px] text-muted-foreground">{new Date(t.created_at).toLocaleString()}</div>
+              </div>
+              <div className={Number(t.amount) >= 0 ? "text-success" : "text-destructive"}>{Number(t.amount) >= 0 ? "+" : ""}{fmt(t.amount)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </ClientShell>
+  );
+}
