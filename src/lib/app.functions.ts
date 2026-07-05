@@ -144,9 +144,9 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
       while (Date.now() < deadline) {
         statusResponse = await queryWithdrawalPayoutStatus({
           phone: prof.phone,
-          shortcode: readEnvValue('MPESA_B2C_SHORTCODE', 'MPESA_SHORTCODE') ?? '',
-          initiatorName: readEnvValue('MPESA_B2C_INITIATOR_NAME', 'MPESA_INITIATOR_NAME') ?? '',
-          securityCredential: readEnvValue('MPESA_B2C_SECURITY_CREDENTIAL', 'MPESA_SECURITY_CREDENTIAL') ?? '',
+          shortcode: readEnvValue('MPESA_B2C_SHORTCODE', 'DARAJA_B2C_SHORTCODE', 'MPESA_SHORTCODE') ?? '',
+          initiatorName: readEnvValue('MPESA_B2C_INITIATOR_NAME', 'DARAJA_B2C_INITIATOR_NAME', 'MPESA_INITIATOR_NAME') ?? '',
+          securityCredential: readEnvValue('MPESA_B2C_SECURITY_CREDENTIAL', 'DARAJA_B2C_SECURITY_CREDENTIAL', 'MPESA_SECURITY_CREDENTIAL') ?? '',
           conversationId: conversationId ?? undefined,
           originatorConversationId: originatorConversationId ?? undefined,
         });

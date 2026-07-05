@@ -120,12 +120,12 @@ export async function initiateWithdrawalPayout({
   amount: number;
   withdrawalId: string;
 }) {
-  const shortcode = readEnvValue('MPESA_B2C_SHORTCODE', 'MPESA_SHORTCODE');
-  const initiatorName = readEnvValue('MPESA_B2C_INITIATOR_NAME', 'MPESA_INITIATOR_NAME');
-  const securityCredential = readEnvValue('MPESA_B2C_SECURITY_CREDENTIAL', 'MPESA_SECURITY_CREDENTIAL');
-  const commandId = readEnvValue('MPESA_B2C_COMMAND_ID', 'MPESA_COMMAND_ID') ?? 'BusinessPayment';
+  const shortcode = readEnvValue('MPESA_B2C_SHORTCODE', 'DARAJA_B2C_SHORTCODE', 'MPESA_SHORTCODE');
+  const initiatorName = readEnvValue('MPESA_B2C_INITIATOR_NAME', 'DARAJA_B2C_INITIATOR_NAME', 'MPESA_INITIATOR_NAME');
+  const securityCredential = readEnvValue('MPESA_B2C_SECURITY_CREDENTIAL', 'DARAJA_B2C_SECURITY_CREDENTIAL', 'MPESA_SECURITY_CREDENTIAL');
+  const commandId = readEnvValue('MPESA_B2C_COMMAND_ID', 'DARAJA_B2C_COMMAND_ID', 'MPESA_COMMAND_ID') ?? 'BusinessPayment';
   if (!shortcode || !initiatorName || !securityCredential) {
-    throw new Error('Payout provider is not configured. Please contact support.');
+    throw new Error('Payout provider is not configured. Set MPESA_B2C_SHORTCODE/INITIATOR/SECURITY_CREDENTIAL or the DARAJA_B2C_* equivalents in Vercel.');
   }
 
   const { token, baseUrl } = await getMpesaToken();
@@ -137,8 +137,8 @@ export async function initiateWithdrawalPayout({
     PartyA: shortcode,
     PartyB: normalizePhone(phone),
     Remarks: `MineHub withdrawal ${withdrawalId.slice(0, 8)}`,
-    QueueTimeOutURL: readEnvValue('MPESA_B2C_QUEUE_URL') ?? resolvePublicBaseUrl(),
-    ResultURL: readEnvValue('MPESA_B2C_RESULT_URL') ?? resolvePublicBaseUrl(),
+    QueueTimeOutURL: readEnvValue('MPESA_B2C_QUEUE_URL', 'DARAJA_B2C_TIMEOUT_URL') ?? resolvePublicBaseUrl(),
+    ResultURL: readEnvValue('MPESA_B2C_RESULT_URL', 'DARAJA_B2C_RESULT_URL') ?? resolvePublicBaseUrl(),
     Occasion: `withdrawal-${withdrawalId.slice(0, 8)}`,
   };
 
