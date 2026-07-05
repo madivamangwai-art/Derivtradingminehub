@@ -1,6 +1,43 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+export function getDetailedAuthErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message || error.toString();
+  }
+
+  if (isRecord(error)) {
+    const entries: string[] = [];
+    if (typeof error.message === "string" && error.message.trim()) {
+      entries.push(error.message);
+    }
+    if (typeof error.code === "string" && error.code.trim()) {
+      entries.push(`code=${error.code}`);
+    }
+    if (typeof error.status === "number") {
+      entries.push(`status=${error.status}`);
+    }
+    if (typeof error.details === "string" && error.details.trim()) {
+      entries.push(`details=${error.details}`);
+    }
+    if (entries.length > 0) return entries.join(" | ");
+  }
+
+  return typeof error === "string" ? error : JSON.stringify(error);
+}
+
+export function logAuthFailure(stage: string, error: unknown, context?: Record<string, unknown>) {
+  console.error(`[auth] ${stage}`, {
+    error: getDetailedAuthErrorMessage(error),
+    context,
+    stack: error instanceof Error ? error.stack : undefined,
+  });
+}
+
 export function getFriendlyAuthMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   const code =
@@ -56,7 +93,7 @@ export function getFriendlyAuthMessage(error: unknown) {
 function throwIfSupabaseError(result: { error?: unknown }, action: string) {
   if (!result.error) return;
 
-  const message = result.error instanceof Error ? result.error.message : String(result.error);
+  const message = getDetailedAuthErrorMessage(result.error);
   throw new Error(`${action}: ${message}`);
 }
 
@@ -172,7 +209,11 @@ export const createAccountWithoutConfirmation = createServerFn({ method: "POST" 
       });
 
       if (error) {
-        console.error("Account creation failed", error);
+        logAuthFailure("signup.createUser", error, {
+          email: data.email.trim().toLowerCase(),
+          phone: data.phone.trim(),
+          refCode: data.refCode?.trim().toUpperCase(),
+        });
         throw error;
       }
 
@@ -191,7 +232,17 @@ export const createAccountWithoutConfirmation = createServerFn({ method: "POST" 
 
       return { ok: true, userId: created.user.id };
     } catch (error) {
-      console.error("Account creation failed", error);
+      const detailMessage = getDetailedAuthErrorMessage(error);
+      logAuthFailure("signup.handler", error, {
+        email: data.email.trim().toLowerCase(),
+        phone: data.phone.trim(),
+        refCode: data.refCode?.trim().toUpperCase(),
+      });
+
+      if (process.env.NODE_ENV !== "production" && detailMessage) {
+        throw new Error(`Signup failed: ${detailMessage}`);
+      }
+
       throw new Error(getFriendlyAuthMessage(error));
     }
   });
