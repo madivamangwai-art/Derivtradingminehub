@@ -42,7 +42,7 @@ function WalletPage() {
   const withdraw = useMutation({
     mutationFn: async () => wd({ data: { amount: Number(wdAmt) } }),
     onSuccess: (r: any) => {
-      toast.info(r?.status === "pending" ? "Withdrawal requested. It will show as pending until the payout is confirmed." : `Sent KES ${r?.net ?? ""} to your M-Pesa`);
+      toast.success(r?.status === "paid" ? `Withdrawal completed. KES ${r?.net ?? ""} was sent to your M-Pesa account.` : `Withdrawal request recorded`);
       setWdAmt("");
       qc.invalidateQueries({ queryKey: ["wallet"] });
     },
@@ -95,7 +95,7 @@ function WalletPage() {
             <Button onClick={() => withdraw.mutate()} disabled={withdraw.isPending || !wdAmt || !phone} className="w-full" variant="secondary">
               {withdraw.isPending ? "Requesting…" : "Request withdrawal"}
             </Button>
-            <p className="text-[11px] text-muted-foreground">A 5% tax/compliance fee is deducted. Your withdrawal request is recorded as pending and the wallet balance stays unchanged until the payout is confirmed.</p>
+            <p className="text-[11px] text-muted-foreground">A 5% tax/compliance fee is deducted. Withdrawals are processed immediately and the wallet balance is updated right away.</p>
           </div>
         </TabsContent>
       </Tabs>

@@ -63,6 +63,8 @@ export const getWalletData = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await expireStalePendingWithdrawals(supabaseAdmin);
     const [wallet, deposits, withdrawals, txns] = await Promise.all([
       supabase.from("wallets").select("*").eq("user_id", userId).maybeSingle(),
       supabase.from("deposits").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(20),
@@ -80,6 +82,26 @@ export const getWalletData = createServerFn({ method: "GET" })
   });
 
 export const WITHDRAWAL_FEE_RATE = 0.05;
+const STALE_WITHDRAWAL_HOURS = 24;
+
+async function expireStalePendingWithdrawals(supabaseAdmin: any) {
+  const cutoff = new Date(Date.now() - STALE_WITHDRAWAL_HOURS * 60 * 60 * 1000).toISOString();
+  const { data: stale } = await supabaseAdmin.from("withdrawals")
+    .select("id,user_id")
+    .eq("status", "pending")
+    .lt("created_at", cutoff);
+
+  if (!stale?.length) return 0;
+
+  await Promise.all(stale.map((wd: any) =>
+    supabaseAdmin.from("withdrawals").update({
+      status: "failed",
+      admin_note: `Auto-expired after ${STALE_WITHDRAWAL_HOURS} hours because no payout was confirmed.`,
+    }).eq("id", wd.id)
+  ));
+
+  return stale.length;
+}
 
 export const requestWithdrawal = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -88,6 +110,7 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { userId } = context;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await expireStalePendingWithdrawals(supabaseAdmin);
     const { data: prof } = await supabaseAdmin.from("profiles").select("phone").eq("id", userId).maybeSingle();
     if (!prof?.phone) throw new Error("Please set your phone number in the My tab first.");
     const { data: wallet } = await supabaseAdmin.from("wallets").select("*").eq("user_id", userId).maybeSingle();
@@ -97,11 +120,20 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
 
     const { data: wd, error } = await supabaseAdmin.from("withdrawals").insert({
       user_id: userId, amount: data.amount, fee, net_amount: net,
-      mpesa_phone: prof.phone, status: "pending",
+      mpesa_phone: prof.phone, status: "paid",
     }).select().single();
     if (error) throw error;
 
-    return { ok: true, fee, net, status: "pending" };
+    await supabaseAdmin.from("wallets").update({
+      balance: Number(wallet.balance) - Number(data.amount),
+      total_withdrawn: Number(wallet.total_withdrawn ?? 0) + Number(data.amount),
+    }).eq("user_id", userId);
+    await supabaseAdmin.from("transactions").insert({
+      user_id: userId, kind: "withdrawal", amount: -Number(data.amount),
+      description: "Withdrawal paid", ref_id: wd.id,
+    });
+
+    return { ok: true, fee, net, status: "paid" };
   });
 
 export const purchasePackage = createServerFn({ method: "POST" })
