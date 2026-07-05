@@ -30,6 +30,30 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
   };
 }
 
+function createSupabaseAdminFallbackClient(message: string) {
+  const error = new Error(message);
+  const createFallbackResponse = () => Promise.resolve({ data: null, error });
+
+  return {
+    auth: {
+      getSession: async () => ({ data: { session: null }, error }),
+      getUser: async () => ({ data: { user: null }, error }),
+    },
+    from: () => {
+      const result = createFallbackResponse();
+      return new Proxy(result, {
+        get(target, prop) {
+          if (prop === 'then' || prop === 'catch' || prop === 'finally') {
+            return target[prop as keyof Promise<unknown>];
+          }
+          return (..._args: unknown[]) => createFallbackResponse();
+        },
+      });
+    },
+    rpc: async () => ({ data: null, error }),
+  } as unknown as ReturnType<typeof createSupabaseAdminClient>;
+}
+
 function createSupabaseAdminClient() {
   const SUPABASE_URL = readEnvValue('SUPABASE_URL', 'VITE_SUPABASE_URL', 'VITE-SUPABASE_URL');
   const SUPABASE_SERVICE_ROLE_KEY = readEnvValue('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SECRET_ROLE_KEY', 'VITE-SUPABASE_SECRET_ROLE_KEY');
@@ -40,8 +64,8 @@ function createSupabaseAdminClient() {
       ...(!SUPABASE_SERVICE_ROLE_KEY ? ['SUPABASE_SERVICE_ROLE_KEY'] : []),
     ];
     const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your Vercel environment.`;
-    console.error(`[Supabase] ${message}`);
-    throw new Error(message);
+    console.warn(`[Supabase] ${message}`);
+    return createSupabaseAdminFallbackClient(message);
   }
 
   return createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {

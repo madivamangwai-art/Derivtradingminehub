@@ -28,6 +28,31 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 }
 
 
+function createSupabaseFallbackClient(message: string) {
+  const error = new Error(message);
+  const createFallbackResponse = () => Promise.resolve({ data: null, error });
+
+  return {
+    auth: {
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } }, error }),
+      getSession: async () => ({ data: { session: null }, error }),
+      getUser: async () => ({ data: { user: null }, error }),
+    },
+    from: () => {
+      const result = createFallbackResponse();
+      return new Proxy(result, {
+        get(target, prop) {
+          if (prop === 'then' || prop === 'catch' || prop === 'finally') {
+            return target[prop as keyof Promise<unknown>];
+          }
+          return (..._args: unknown[]) => createFallbackResponse();
+        },
+      });
+    },
+    rpc: async () => ({ data: null, error }),
+  } as unknown as ReturnType<typeof createSupabaseClient>;
+}
+
 function createSupabaseClient() {
   const SUPABASE_URL = readEnvValue('VITE_SUPABASE_URL', 'SUPABASE_URL', 'VITE-SUPABASE_URL', 'VITE-SUPABASE_SECRET_ROLE_KEY');
   const SUPABASE_PUBLISHABLE_KEY = readEnvValue('VITE_SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_PUBLISHABLE_KEY', 'VITE-SUPABASE_PUBLISHABLE_KEY');
@@ -38,8 +63,8 @@ function createSupabaseClient() {
       ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
     ];
     const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY for local development or configure them in Vercel.`;
-    console.error(`[Supabase] ${message}`);
-    throw new Error(message);
+    console.warn(`[Supabase] ${message}`);
+    return createSupabaseFallbackClient(message);
   }
 
   return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
