@@ -5,17 +5,19 @@ import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { createAccountWithoutConfirmation } from "@/lib/auth.functions";
+import { createAccountWithoutConfirmation, getFriendlyAuthMessage } from "@/lib/auth.functions";
 import { isReferralRequired } from "@/lib/elevation.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Coins, Loader2, Eye, EyeOff } from "lucide-react";
 
-const searchSchema = z.object({
-  mode: z.enum(["signin", "signup"]).optional(),
-  ref: z.string().optional(),
-});
+const searchSchema = z
+  .object({
+    mode: z.enum(["signin", "signup"]).optional(),
+    ref: z.string().optional(),
+  })
+  .optional();
 
 export const Route = createFileRoute("/auth")({
   validateSearch: searchSchema,
@@ -28,9 +30,11 @@ export const Route = createFileRoute("/auth")({
 });
 
 function AuthPage() {
-  const { mode: initialMode, ref } = Route.useSearch();
+  const search = Route.useSearch();
+  const initialMode = search?.mode ?? "signin";
+  const ref = search?.ref ?? "";
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"signin" | "signup">(initialMode ?? "signin");
+  const [mode, setMode] = useState<"signin" | "signup">(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -56,7 +60,7 @@ function AuthPage() {
     try {
       if (mode === "signup") {
         if (password !== confirmPassword) {
-          toast.error("Passwords do not match");
+          toast.error("Passwords do not match.");
           setLoading(false);
           return;
         }
@@ -67,7 +71,7 @@ function AuthPage() {
           phone,
           refCode: refCode.trim(),
         });
-        toast.success("Account created!");
+        toast.success("Account created successfully.");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -75,7 +79,8 @@ function AuthPage() {
       }
       navigate({ to: "/home" });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Auth failed");
+      console.error("Authentication failed", err);
+      toast.error(getFriendlyAuthMessage(err));
     } finally {
       setLoading(false);
     }
