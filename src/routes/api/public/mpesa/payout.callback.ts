@@ -19,6 +19,7 @@ export const Route = createFileRoute("/api/public/mpesa/payout/callback")({
           const { data: wds } = await query;
           const wd = (wds ?? [])[0];
           if (!wd) return Response.json({ ok: true });
+          if (String(wd.status).toLowerCase() === "success") return Response.json({ ok: true });
 
           if (String(resultCode) === "0") {
             const { data: w } = await supabaseAdmin.from("wallets").select("*").eq("user_id", wd.user_id).maybeSingle();

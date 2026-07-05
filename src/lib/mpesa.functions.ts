@@ -1,5 +1,4 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { readEnvValue } from "@/lib/env";
@@ -53,7 +52,16 @@ function tsAndPassword(shortcode: string, passkey: string) {
   return { timestamp, password };
 }
 
-function resolvePublicBaseUrl(path = "/api/public/mpesa/payout/callback") {
+async function resolvePublicBaseUrl(path = "/api/public/mpesa/payout/callback") {
+  try {
+    const { getRequest } = await import("@tanstack/react-start/server");
+    const req = getRequest();
+    const requestUrl = req?.url ? new URL(req.url) : undefined;
+    if (requestUrl?.origin) return `${requestUrl.origin}${path}`;
+  } catch {
+    // fall through to env-based detection
+  }
+
   const candidates = [
     readEnvValue('APP_URL', 'SITE_URL', 'PUBLIC_URL', 'NEXT_PUBLIC_SITE_URL'),
     process.env.APP_URL,
@@ -149,10 +157,13 @@ export async function initiateWithdrawalPayout({
     PartyA: shortcode,
     PartyB: normalizePhone(phone),
     Remarks: `MineHub withdrawal ${withdrawalId.slice(0, 8)}`,
-    QueueTimeOutURL: readEnvValue('MPESA_B2C_QUEUE_URL', 'DARAJA_B2C_TIMEOUT_URL') ?? resolvePublicBaseUrl(),
-    ResultURL: readEnvValue('MPESA_B2C_RESULT_URL', 'DARAJA_B2C_RESULT_URL') ?? resolvePublicBaseUrl(),
+    QueueTimeOutURL: readEnvValue('MPESA_B2C_QUEUE_URL', 'DARAJA_B2C_TIMEOUT_URL') ?? queueUrl,
+    ResultURL: readEnvValue('MPESA_B2C_RESULT_URL', 'DARAJA_B2C_RESULT_URL') ?? resultUrl,
     Occasion: `withdrawal-${withdrawalId.slice(0, 8)}`,
   };
+
+  const queueUrl = await resolvePublicBaseUrl();
+  const resultUrl = await resolvePublicBaseUrl();
 
   const res = await fetch(`${baseUrl}/mpesa/b2c/v1/paymentrequest`, {
     method: 'POST',
@@ -194,9 +205,7 @@ export const initiateStkPush = createServerFn({ method: "POST" })
     let callbackUrl = readEnvValue('MPESA_CALLBACK_URL', 'DARAJA_CALLBACK_URL');
     if (!callbackUrl) {
       try {
-        const req = getRequest();
-        const url = new URL(req!.url);
-        callbackUrl = `${url.origin}/api/public/mpesa/callback`;
+        callbackUrl = await resolvePublicBaseUrl("/api/public/mpesa/callback");
       } catch {
         callbackUrl = "https://example.com/api/public/mpesa/callback";
       }

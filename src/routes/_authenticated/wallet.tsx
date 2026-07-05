@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { getWalletData, requestWithdrawal, getMyProfile } from "@/lib/app.functions";
 import { initiateStkPush } from "@/lib/mpesa.functions";
@@ -26,6 +26,7 @@ function WalletPage() {
 
   const [depAmt, setDepAmt] = useState("");
   const [wdAmt, setWdAmt] = useState("");
+  const [pendingActivity, setPendingActivity] = useState<any[]>([]);
   const phone = prof?.profile?.phone ?? "";
 
   const deposit = useMutation({
@@ -42,12 +43,38 @@ function WalletPage() {
   const withdraw = useMutation({
     mutationFn: async () => wd({ data: { amount: Number(wdAmt) } }),
     onSuccess: (r: any) => {
+      const amount = Number(wdAmt);
+      setPendingActivity((prev) => [{
+        id: r?.withdrawal_id ?? `withdrawal:${Date.now()}`,
+        kind: "withdrawal",
+        title: r?.status === "success" ? "Withdrawal completed" : "Withdrawal pending",
+        amount: -amount,
+        status: r?.status === "success" ? "success" : "processing",
+        created_at: new Date().toISOString(),
+        meta: { pending: true },
+      }, ...prev]);
       toast.success(r?.status === "processing" ? `Withdrawal submitted. Funds are being sent to your M-Pesa account now and should arrive within minutes.` : `Withdrawal request recorded`);
       setWdAmt("");
-      qc.invalidateQueries({ queryKey: ["wallet"] });
+      void qc.invalidateQueries({ queryKey: ["wallet"] }).then(() => setPendingActivity([]));
     },
     onError: (e: any) => toast.error(e.message ?? "Failed"),
   });
+
+  const activityItems = useMemo(() => {
+    const merged = [...(data?.activity ?? []), ...pendingActivity];
+    const seen = new Set<string>();
+    return merged.filter((item: any) => {
+      const id = String(item?.id ?? "");
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    }).sort((a: any, b: any) => {
+      const aPending = a.status === "pending" ? 0 : 1;
+      const bPending = b.status === "pending" ? 0 : 1;
+      if (aPending !== bPending) return aPending - bPending;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [data?.activity, pendingActivity]);
 
   return (
     <ClientShell title="Wallet">
@@ -88,14 +115,13 @@ function WalletPage() {
             {Number(wdAmt) > 0 && (
               <div className="rounded-lg bg-muted/40 px-3 py-2 text-xs">
                 <div className="flex justify-between"><span className="text-muted-foreground">Requested</span><span>{fmt(Number(wdAmt))}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Tax / processing fee (5%)</span><span>-{fmt(Number(wdAmt) * 0.05)}</span></div>
-                <div className="mt-1 flex justify-between border-t border-border/60 pt-1 font-medium"><span>You receive</span><span>{fmt(Number(wdAmt) * 0.95)}</span></div>
+                <div className="mt-1 flex justify-between border-t border-border/60 pt-1 font-medium"><span>You receive</span><span>{fmt(Number(wdAmt))}</span></div>
               </div>
             )}
             <Button onClick={() => withdraw.mutate()} disabled={withdraw.isPending || !wdAmt || !phone} className="w-full" variant="secondary">
               {withdraw.isPending ? "Requesting…" : "Request withdrawal"}
             </Button>
-            <p className="text-[11px] text-muted-foreground">A 5% tax/compliance fee is deducted. Withdrawals are submitted to M-Pesa instantly and should reach your phone within minutes.</p>
+            <p className="text-[11px] text-muted-foreground">Withdrawals are submitted to M-Pesa directly and should reach your account shortly.</p>
           </div>
         </TabsContent>
       </Tabs>
@@ -103,8 +129,8 @@ function WalletPage() {
       <div className="mt-6">
         <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">Transactions</h2>
         <div className="space-y-2">
-          {(data?.activity ?? []).length === 0 && <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No transactions yet.</div>}
-          {(data?.activity ?? []).map((t: any) => (
+          {activityItems.length === 0 && <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No transactions yet.</div>}
+          {activityItems.map((t: any) => (
             <div key={t.id} className="flex items-center justify-between rounded-lg bg-card px-3 py-2 text-sm">
               <div>
                 <div className="font-medium capitalize">{t.title}</div>
