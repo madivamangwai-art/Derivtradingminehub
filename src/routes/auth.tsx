@@ -121,14 +121,16 @@ function AuthPage() {
               </div>
             </div>
             {mode === "signup" && (
-              <div>
-                <Label htmlFor="pw2">Confirm password</Label>
-                <Input id="pw2" type={showPassword ? "text" : "password"} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} maxLength={72} />
-              </div>
-              <div>
-                <Label htmlFor="ref">Referral code {refRequired ? "(required)" : "(optional)"}</Label>
-                <Input id="ref" value={refCode} onChange={(e) => setRefCode(e.target.value)} maxLength={20} placeholder="ABCD1234" required={refRequired} />
-              </div>
+              <>
+                <div>
+                  <Label htmlFor="pw2">Confirm password</Label>
+                  <Input id="pw2" type={showPassword ? "text" : "password"} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} maxLength={72} />
+                </div>
+                <div>
+                  <Label htmlFor="ref">Referral code {refRequired ? "(required)" : "(optional)"}</Label>
+                  <Input id="ref" value={refCode} onChange={(e) => setRefCode(e.target.value)} maxLength={20} placeholder="ABCD1234" required={refRequired} />
+                </div>
+              </>
             )}
             <Button type="submit" disabled={loading} className="w-full gradient-gold">
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
