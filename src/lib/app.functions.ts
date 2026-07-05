@@ -97,21 +97,16 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
 
     const { data: wd, error } = await supabaseAdmin.from("withdrawals").insert({
       user_id: userId, amount: data.amount, fee, net_amount: net,
-      mpesa_phone: prof.phone, status: "paid",
+      mpesa_phone: prof.phone, status: "pending",
     }).select().single();
     if (error) throw error;
 
-    await supabaseAdmin.from("wallets").update({
-      balance: Number(wallet.balance) - Number(data.amount),
-      total_withdrawn: Number(wallet.total_withdrawn) + Number(data.amount),
-    }).eq("user_id", userId);
-
     await supabaseAdmin.from("transactions").insert({
       user_id: userId, kind: "withdrawal", amount: -Number(data.amount),
-      description: `Withdrawal paid to ${prof.phone}`, ref_id: wd.id,
+      description: `Withdrawal requested to ${prof.phone}`, ref_id: wd.id,
     });
 
-    return { ok: true, fee, net, status: "paid" };
+    return { ok: true, fee, net, status: "pending" };
   });
 
 export const purchasePackage = createServerFn({ method: "POST" })

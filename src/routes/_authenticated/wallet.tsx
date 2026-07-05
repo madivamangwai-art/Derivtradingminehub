@@ -95,7 +95,7 @@ function WalletPage() {
             <Button onClick={() => withdraw.mutate()} disabled={withdraw.isPending || !wdAmt || !phone} className="w-full" variant="secondary">
               {withdraw.isPending ? "Requesting…" : "Request withdrawal"}
             </Button>
-            <p className="text-[11px] text-muted-foreground">A 5% tax/compliance fee is deducted. Net amount is paid to {phone || "your registered number"} within 24 hours.</p>
+            <p className="text-[11px] text-muted-foreground">A 5% tax/compliance fee is deducted. Your withdrawal request is recorded as pending and the wallet balance stays unchanged until the payout is confirmed.</p>
           </div>
         </TabsContent>
       </Tabs>
