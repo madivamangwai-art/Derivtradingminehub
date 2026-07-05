@@ -41,7 +41,6 @@ AS $$
 DECLARE
   ref_code TEXT;
   referrer_uuid UUID;
-  admin_count INT;
   display_name TEXT;
 BEGIN
   display_name := COALESCE(
@@ -67,11 +66,6 @@ BEGIN
 
   INSERT INTO public.wallets (user_id) VALUES (NEW.id) ON CONFLICT DO NOTHING;
   INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'client') ON CONFLICT DO NOTHING;
-
-  SELECT count(*) INTO admin_count FROM public.user_roles WHERE role = 'admin';
-  IF admin_count = 0 THEN
-    INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'admin') ON CONFLICT DO NOTHING;
-  END IF;
 
   RETURN NEW;
 END;
@@ -104,16 +98,3 @@ SELECT u.id, 'client'::app_role FROM auth.users u
 LEFT JOIN public.user_roles r ON r.user_id = u.id AND r.role = 'client'
 WHERE r.user_id IS NULL;
 
--- Guarantee at least one admin
-DO $do$
-DECLARE
-  first_user UUID;
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.user_roles WHERE role = 'admin') THEN
-    SELECT id INTO first_user FROM auth.users ORDER BY created_at LIMIT 1;
-    IF first_user IS NOT NULL THEN
-      INSERT INTO public.user_roles (user_id, role) VALUES (first_user, 'admin') ON CONFLICT DO NOTHING;
-    END IF;
-  END IF;
-END
-$do$;

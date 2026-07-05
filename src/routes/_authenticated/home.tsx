@@ -2,14 +2,11 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getDashboard, getMyProfile, claimPackagePayout } from "@/lib/app.functions";
-import { elevateSelfToAdmin } from "@/lib/elevation.functions";
 import { ClientShell } from "@/components/layout/client-shell";
 import { ArrowDownToLine, ArrowUpFromLine, TrendingUp, Users, Wallet as WalletIcon, Sparkles } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { useRef, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/home")({
@@ -21,7 +18,6 @@ const fmt = (n: number | string) => `KES ${Number(n).toLocaleString(undefined, {
 function HomePage() {
   const fn = useServerFn(getDashboard);
   const profFn = useServerFn(getMyProfile);
-  const elevateFn = useServerFn(elevateSelfToAdmin);
   const { data, isLoading } = useQuery({ queryKey: ["dashboard"], queryFn: () => fn() });
   const { data: prof } = useQuery({ queryKey: ["profile"], queryFn: () => profFn() });
   const navigate = useNavigate();
@@ -32,45 +28,18 @@ function HomePage() {
   const dailyTotal = (data?.activePackages ?? []).reduce((s, p: any) => s + Number(p.packages?.daily_payout ?? 0), 0);
   const isAdmin = prof?.isAdmin ?? false;
 
-  const clicksRef = useRef(0);
-  const timerRef = useRef<any>(null);
-  const [pwOpen, setPwOpen] = useState(false);
-  const [pw, setPw] = useState("");
   const [selectedPkg, setSelectedPkg] = useState<any>(null);
 
   const handleLogoClick = () => {
-    clicksRef.current += 1;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => { clicksRef.current = 0; }, 1500);
-    if (clicksRef.current >= 5) {
-      clicksRef.current = 0;
-      if (isAdmin) navigate({ to: "/admin/clients" });
-      else setPwOpen(true);
-    }
-  };
-
-  const submitPw = async () => {
-    try {
-      await elevateFn({ data: { password: pw } });
-      toast.success("Admin access granted");
-      setPw(""); setPwOpen(false);
-      await qc.invalidateQueries({ queryKey: ["profile"] });
+    if (isAdmin) {
       navigate({ to: "/admin/clients" });
-    } catch (e: any) {
-      toast.error(e.message ?? "Incorrect password");
+      return;
     }
+    toast.info("Admin access is granted by an existing administrator from the Users section.");
   };
 
   return (
     <ClientShell title={`Hi, ${data?.profile?.full_name?.split(" ")[0] ?? "Miner"}`} onLogoClick={handleLogoClick}>
-      <Dialog open={pwOpen} onOpenChange={setPwOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Admin access</DialogTitle></DialogHeader>
-          <p className="text-xs text-muted-foreground">Enter the admin password to unlock the admin panel.</p>
-          <Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Password" autoFocus onKeyDown={(e) => { if (e.key === "Enter") submitPw(); }} />
-          <DialogFooter><Button onClick={submitPw} className="w-full gradient-gold">Unlock</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
       <div className="glass-card rounded-2xl p-5">
         <div className="flex items-center justify-between text-xs uppercase text-muted-foreground">
           <span>Wallet balance</span>

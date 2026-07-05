@@ -254,7 +254,6 @@ AS $$
 DECLARE
   ref_code TEXT;
   referrer_uuid UUID;
-  admin_count INT;
   display_name TEXT;
 BEGIN
   display_name := COALESCE(
@@ -280,11 +279,6 @@ BEGIN
 
   INSERT INTO public.wallets (user_id) VALUES (NEW.id) ON CONFLICT DO NOTHING;
   INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'client') ON CONFLICT DO NOTHING;
-
-  SELECT count(*) INTO admin_count FROM public.user_roles WHERE role = 'admin';
-  IF admin_count = 0 THEN
-    INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'admin') ON CONFLICT DO NOTHING;
-  END IF;
 
   RETURN NEW;
 END;
