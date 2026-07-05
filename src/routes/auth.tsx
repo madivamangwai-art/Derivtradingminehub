@@ -93,11 +93,13 @@ function AuthPage() {
         }
 
         const result = await createAccountFn({
-          email,
-          password,
-          fullName,
-          phone,
-          refCode: refCode.trim(),
+          data: {
+            email,
+            password,
+            fullName,
+            phone,
+            refCode: refCode.trim(),
+          },
         });
 
         if (result?.ok) {

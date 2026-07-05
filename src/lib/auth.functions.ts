@@ -97,6 +97,33 @@ function throwIfSupabaseError(result: { error?: unknown }, action: string) {
   throw new Error(`${action}: ${message}`);
 }
 
+type SignupInput = {
+  email: string;
+  password: string;
+  fullName: string;
+  phone: string;
+  refCode?: string;
+};
+
+function parseSignupInput(data: unknown): SignupInput {
+  const parsed = z
+    .object({
+      email: z.string().trim().email(),
+      password: z.string().min(6).max(72),
+      fullName: z.string().trim().min(1).max(80),
+      phone: z.string().trim().min(1).max(15),
+      refCode: z.string().trim().max(20).optional(),
+    })
+    .safeParse(data);
+
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((issue) => issue.message).join(", ");
+    throw new Error(`Invalid signup payload: ${issues}`);
+  }
+
+  return parsed.data;
+}
+
 async function createInitialUserRecords(
   supabaseAdmin: any,
   userId: string,
@@ -175,44 +202,28 @@ async function createInitialUserRecords(
 }
 
 export const createAccountWithoutConfirmation = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: {
-      email: string;
-      password: string;
-      fullName: string;
-      phone: string;
-      refCode?: string;
-    }) =>
-      z
-        .object({
-          email: z.string().email(),
-          password: z.string().min(6).max(72),
-          fullName: z.string().min(1).max(80),
-          phone: z.string().min(1).max(15),
-          refCode: z.string().max(20).optional(),
-        })
-        .parse(data),
-  )
+  .validator((data: unknown) => parseSignupInput(data))
   .handler(async ({ data }) => {
+    const input = data as SignupInput;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     try {
       const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-        email: data.email,
-        password: data.password,
+        email: input.email,
+        password: input.password,
         email_confirm: true,
         user_metadata: {
-          full_name: data.fullName,
-          phone: data.phone,
-          referred_by_code: data.refCode?.trim().toUpperCase() || undefined,
+          full_name: input.fullName,
+          phone: input.phone,
+          referred_by_code: input.refCode?.trim().toUpperCase() || undefined,
         },
       });
 
       if (error) {
         logAuthFailure("signup.createUser", error, {
-          email: data.email.trim().toLowerCase(),
-          phone: data.phone.trim(),
-          refCode: data.refCode?.trim().toUpperCase(),
+          email: input.email.trim().toLowerCase(),
+          phone: input.phone.trim(),
+          refCode: input.refCode?.trim().toUpperCase(),
         });
         throw error;
       }
@@ -224,19 +235,19 @@ export const createAccountWithoutConfirmation = createServerFn({ method: "POST" 
       await createInitialUserRecords(
         supabaseAdmin,
         created.user.id,
-        data.email,
-        data.fullName,
-        data.phone,
-        data.refCode,
+        input.email,
+        input.fullName,
+        input.phone,
+        input.refCode,
       );
 
       return { ok: true, userId: created.user.id };
     } catch (error) {
       const detailMessage = getDetailedAuthErrorMessage(error);
       logAuthFailure("signup.handler", error, {
-        email: data.email.trim().toLowerCase(),
-        phone: data.phone.trim(),
-        refCode: data.refCode?.trim().toUpperCase(),
+        email: input.email.trim().toLowerCase(),
+        phone: input.phone.trim(),
+        refCode: input.refCode?.trim().toUpperCase(),
       });
 
       if (process.env.NODE_ENV !== "production" && detailMessage) {
