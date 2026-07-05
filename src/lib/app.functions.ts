@@ -1,7 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { readEnvValue } from "@/lib/env";
 import { buildWalletActivityItems } from "@/lib/payment-state";
+import { initiateWithdrawalPayout, queryWithdrawalPayoutStatus } from "@/lib/mpesa.functions";
 
 // ============ Client-facing server functions ============
 
@@ -120,20 +122,72 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
 
     const { data: wd, error } = await supabaseAdmin.from("withdrawals").insert({
       user_id: userId, amount: data.amount, fee, net_amount: net,
-      mpesa_phone: prof.phone, status: "paid",
+      mpesa_phone: prof.phone, status: "pending",
     }).select().single();
     if (error) throw error;
 
-    await supabaseAdmin.from("wallets").update({
-      balance: Number(wallet.balance) - Number(data.amount),
-      total_withdrawn: Number(wallet.total_withdrawn ?? 0) + Number(data.amount),
-    }).eq("user_id", userId);
-    await supabaseAdmin.from("transactions").insert({
-      user_id: userId, kind: "withdrawal", amount: -Number(data.amount),
-      description: "Withdrawal paid", ref_id: wd.id,
-    });
+    try {
+      const payout = await initiateWithdrawalPayout({ phone: prof.phone, amount: Number(data.amount), withdrawalId: wd.id });
+      const conversationId = payout?.ConversationID ?? null;
+      const originatorConversationId = payout?.OriginatorConversationID ?? null;
+      await supabaseAdmin.from("withdrawals").update({
+        status: "processing",
+        admin_note: payout?.ResponseDescription ? String(payout.ResponseDescription) : "Payout request sent to M-Pesa.",
+        conversation_id: conversationId,
+        originator_conversation_id: originatorConversationId,
+        provider_reference: conversationId ?? payout?.OriginatorConversationID ?? null,
+      }).eq("id", wd.id);
 
-    return { ok: true, fee, net, status: "paid" };
+      const deadline = Date.now() + 45_000;
+      let finalStatus = "processing" as "processing" | "success" | "failed";
+      let statusResponse: { status: "processing" | "success" | "failed"; responseDescription?: string } | undefined;
+      while (Date.now() < deadline) {
+        statusResponse = await queryWithdrawalPayoutStatus({
+          phone: prof.phone,
+          shortcode: readEnvValue('MPESA_B2C_SHORTCODE', 'MPESA_SHORTCODE') ?? '',
+          initiatorName: readEnvValue('MPESA_B2C_INITIATOR_NAME', 'MPESA_INITIATOR_NAME') ?? '',
+          securityCredential: readEnvValue('MPESA_B2C_SECURITY_CREDENTIAL', 'MPESA_SECURITY_CREDENTIAL') ?? '',
+          conversationId: conversationId ?? undefined,
+          originatorConversationId: originatorConversationId ?? undefined,
+        });
+        if (statusResponse.status === "success") {
+          finalStatus = "success";
+          break;
+        }
+        if (statusResponse.status === "failed") {
+          finalStatus = "failed";
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+
+      if (finalStatus === "success") {
+          const { data: w } = await supabaseAdmin.from("wallets").select("*").eq("user_id", userId).maybeSingle();
+          if (w) {
+            await supabaseAdmin.from("wallets").update({
+              balance: Number(w.balance) - Number(data.amount),
+              total_withdrawn: Number(w.total_withdrawn ?? 0) + Number(data.amount),
+            }).eq("user_id", userId);
+          }
+          await supabaseAdmin.from("withdrawals").update({
+            status: "success",
+            admin_note: "Payout confirmed by M-Pesa.",
+          }).eq("id", wd.id);
+          await supabaseAdmin.from("transactions").insert({
+            user_id: userId, kind: "withdrawal", amount: -Number(data.amount), description: "Withdrawal completed", ref_id: wd.id,
+          });
+          return { ok: true, fee, net, status: "success" };
+        }
+      if (finalStatus === "failed") {
+        await supabaseAdmin.from("withdrawals").update({ status: "failed", admin_note: statusResponse?.responseDescription ?? "Payout failed" }).eq("id", wd.id);
+        throw new Error(statusResponse?.responseDescription || "Payout failed");
+      }
+      return { ok: true, fee, net, status: "processing" };
+    } catch (payoutError) {
+      const message = payoutError instanceof Error ? payoutError.message : String(payoutError);
+      await supabaseAdmin.from("withdrawals").update({ status: "failed", admin_note: message }).eq("id", wd.id);
+      throw new Error(message);
+    }
   });
 
 export const purchasePackage = createServerFn({ method: "POST" })

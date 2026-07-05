@@ -42,7 +42,7 @@ function WalletPage() {
   const withdraw = useMutation({
     mutationFn: async () => wd({ data: { amount: Number(wdAmt) } }),
     onSuccess: (r: any) => {
-      toast.success(r?.status === "paid" ? `Withdrawal completed. KES ${r?.net ?? ""} was sent to your M-Pesa account.` : `Withdrawal request recorded`);
+      toast.success(r?.status === "processing" ? `Withdrawal submitted. Funds are being sent to your M-Pesa account now and should arrive within minutes.` : `Withdrawal request recorded`);
       setWdAmt("");
       qc.invalidateQueries({ queryKey: ["wallet"] });
     },
@@ -95,7 +95,7 @@ function WalletPage() {
             <Button onClick={() => withdraw.mutate()} disabled={withdraw.isPending || !wdAmt || !phone} className="w-full" variant="secondary">
               {withdraw.isPending ? "Requesting…" : "Request withdrawal"}
             </Button>
-            <p className="text-[11px] text-muted-foreground">A 5% tax/compliance fee is deducted. Withdrawals are processed immediately and the wallet balance is updated right away.</p>
+            <p className="text-[11px] text-muted-foreground">A 5% tax/compliance fee is deducted. Withdrawals are submitted to M-Pesa instantly and should reach your phone within minutes.</p>
           </div>
         </TabsContent>
       </Tabs>
@@ -108,7 +108,7 @@ function WalletPage() {
             <div key={t.id} className="flex items-center justify-between rounded-lg bg-card px-3 py-2 text-sm">
               <div>
                 <div className="font-medium capitalize">{t.title}</div>
-                <div className="text-[11px] text-muted-foreground">{new Date(t.created_at).toLocaleString()} · {t.status === "pending" ? "Pending" : t.status === "failed" ? "Failed" : "Completed"}</div>
+                <div className="text-[11px] text-muted-foreground">{new Date(t.created_at).toLocaleString()} · {t.status === "processing" ? "Processing" : t.status === "pending" ? "Pending" : t.status === "failed" ? "Failed" : "Completed"}</div>
               </div>
               <div className={Number(t.amount) >= 0 ? "text-success" : "text-destructive"}>{Number(t.amount) >= 0 ? "+" : ""}{fmt(t.amount)}</div>
             </div>

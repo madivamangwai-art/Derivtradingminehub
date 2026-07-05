@@ -12,7 +12,7 @@ function mpesaBaseUrls() {
   return [preferred, fallback];
 }
 
-async function getMpesaToken() {
+export async function getMpesaToken() {
   const key = readEnvValue('MPESA_CONSUMER_KEY', 'DARAJA_CONSUMER_KEY');
   const secret = readEnvValue('MPESA_CONSUMER_SECRET', 'DARAJA_CONSUMER_SECRET');
   if (!key || !secret) throw new Error("M-Pesa credentials not configured.");
@@ -51,6 +51,112 @@ function tsAndPassword(shortcode: string, passkey: string) {
   const timestamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14);
   const password = Buffer.from(`${shortcode}${passkey}${timestamp}`).toString("base64");
   return { timestamp, password };
+}
+
+function resolvePublicBaseUrl(path = "/api/public/mpesa/payout/callback") {
+  const candidates = [
+    readEnvValue('APP_URL', 'SITE_URL', 'PUBLIC_URL', 'NEXT_PUBLIC_SITE_URL'),
+    process.env.APP_URL,
+    process.env.SITE_URL,
+    process.env.PUBLIC_URL,
+    process.env.NEXT_PUBLIC_SITE_URL,
+    process.env.VERCEL_URL,
+  ].filter((value): value is string => Boolean(value && value.trim()));
+
+  const candidate = candidates[0];
+  if (!candidate) return `https://example.com${path}`;
+  const withProtocol = /^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`;
+  return withProtocol.replace(/\/$/, '') + path;
+}
+
+export async function queryWithdrawalPayoutStatus({
+  phone,
+  shortcode,
+  initiatorName,
+  securityCredential,
+  conversationId,
+  originatorConversationId,
+}: {
+  phone: string;
+  shortcode: string;
+  initiatorName: string;
+  securityCredential: string;
+  conversationId?: string;
+  originatorConversationId?: string;
+}) {
+  const { token, baseUrl } = await getMpesaToken();
+  const body = {
+    Initiator: initiatorName,
+    SecurityCredential: securityCredential,
+    CommandID: 'BusinessPayment',
+    PartyA: shortcode,
+    IdentifierType: 4,
+    Remarks: 'MineHub payout status check',
+    QueueTimeOutURL: resolvePublicBaseUrl(),
+    ResultURL: resolvePublicBaseUrl(),
+    ConversationID: conversationId,
+    OriginatorConversationID: originatorConversationId,
+  };
+
+  const res = await fetch(`${baseUrl}/mpesa/b2c/v1/query`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({})) as any;
+  const responseCode = String(json?.ResponseCode ?? json?.errorCode ?? '');
+  const responseDescription = String(json?.ResponseDescription ?? json?.errorMessage ?? '');
+  if (responseCode === '0' || responseCode === '000000') return { status: 'success' as const, responseDescription };
+  if (responseCode && responseCode !== '0') return { status: 'failed' as const, responseDescription };
+  return { status: 'pending' as const, responseDescription };
+}
+
+export async function initiateWithdrawalPayout({
+  phone,
+  amount,
+  withdrawalId,
+}: {
+  phone: string;
+  amount: number;
+  withdrawalId: string;
+}) {
+  const shortcode = readEnvValue('MPESA_B2C_SHORTCODE', 'MPESA_SHORTCODE');
+  const initiatorName = readEnvValue('MPESA_B2C_INITIATOR_NAME', 'MPESA_INITIATOR_NAME');
+  const securityCredential = readEnvValue('MPESA_B2C_SECURITY_CREDENTIAL', 'MPESA_SECURITY_CREDENTIAL');
+  const commandId = readEnvValue('MPESA_B2C_COMMAND_ID', 'MPESA_COMMAND_ID') ?? 'BusinessPayment';
+  if (!shortcode || !initiatorName || !securityCredential) {
+    throw new Error('Payout provider is not configured. Please contact support.');
+  }
+
+  const { token, baseUrl } = await getMpesaToken();
+  const body = {
+    Initiator: initiatorName,
+    SecurityCredential: securityCredential,
+    CommandID: commandId,
+    Amount: Math.round(amount),
+    PartyA: shortcode,
+    PartyB: normalizePhone(phone),
+    Remarks: `MineHub withdrawal ${withdrawalId.slice(0, 8)}`,
+    QueueTimeOutURL: readEnvValue('MPESA_B2C_QUEUE_URL') ?? resolvePublicBaseUrl(),
+    ResultURL: readEnvValue('MPESA_B2C_RESULT_URL') ?? resolvePublicBaseUrl(),
+    Occasion: `withdrawal-${withdrawalId.slice(0, 8)}`,
+  };
+
+  const res = await fetch(`${baseUrl}/mpesa/b2c/v1/paymentrequest`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({})) as any;
+  if (!res.ok) {
+    throw new Error(json?.errorMessage ?? json?.requestId ?? 'Payout failed');
+  }
+  const responseCode = String(json?.ResponseCode ?? '');
+  const responseDescription = String(json?.ResponseDescription ?? json?.errorMessage ?? '');
+  if (responseCode && responseCode !== '0') {
+    throw new Error(responseDescription || 'Payout failed');
+  }
+  return json;
 }
 
 export const initiateStkPush = createServerFn({ method: "POST" })

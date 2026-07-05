@@ -132,6 +132,10 @@ CREATE TABLE IF NOT EXISTS public.withdrawals (
   admin_note TEXT,
   fee NUMERIC(14,2) NOT NULL DEFAULT 0,
   net_amount NUMERIC(14,2),
+  conversation_id TEXT,
+  originator_conversation_id TEXT,
+  provider_reference TEXT,
+  metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

@@ -34,6 +34,7 @@ import { Route as AuthenticatedAdminClientsRouteImport } from './routes/_authent
 import { Route as AuthenticatedAdminAccountsRouteImport } from './routes/_authenticated/admin.accounts'
 import { Route as ApiPublicMpesaCallbackRouteImport } from './routes/api/public/mpesa.callback'
 import { Route as ApiPublicCronPayoutsRouteImport } from './routes/api/public/cron.payouts'
+import { Route as ApiPublicMpesaPayoutCallbackRouteImport } from './routes/api/public/mpesa/payout.callback'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -167,6 +168,12 @@ const ApiPublicCronPayoutsRoute = ApiPublicCronPayoutsRouteImport.update({
   path: '/api/public/cron/payouts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicMpesaPayoutCallbackRoute =
+  ApiPublicMpesaPayoutCallbackRouteImport.update({
+    id: '/api/public/mpesa/payout/callback',
+    path: '/api/public/mpesa/payout/callback',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -193,6 +200,7 @@ export interface FileRoutesByFullPath {
   '/trade/': typeof AuthenticatedTradeIndexRoute
   '/api/public/cron/payouts': typeof ApiPublicCronPayoutsRoute
   '/api/public/mpesa/callback': typeof ApiPublicMpesaCallbackRoute
+  '/api/public/mpesa/payout/callback': typeof ApiPublicMpesaPayoutCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -218,6 +226,7 @@ export interface FileRoutesByTo {
   '/trade': typeof AuthenticatedTradeIndexRoute
   '/api/public/cron/payouts': typeof ApiPublicCronPayoutsRoute
   '/api/public/mpesa/callback': typeof ApiPublicMpesaCallbackRoute
+  '/api/public/mpesa/payout/callback': typeof ApiPublicMpesaPayoutCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -246,6 +255,7 @@ export interface FileRoutesById {
   '/_authenticated/trade/': typeof AuthenticatedTradeIndexRoute
   '/api/public/cron/payouts': typeof ApiPublicCronPayoutsRoute
   '/api/public/mpesa/callback': typeof ApiPublicMpesaCallbackRoute
+  '/api/public/mpesa/payout/callback': typeof ApiPublicMpesaPayoutCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -274,6 +284,7 @@ export interface FileRouteTypes {
     | '/trade/'
     | '/api/public/cron/payouts'
     | '/api/public/mpesa/callback'
+    | '/api/public/mpesa/payout/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -299,6 +310,7 @@ export interface FileRouteTypes {
     | '/trade'
     | '/api/public/cron/payouts'
     | '/api/public/mpesa/callback'
+    | '/api/public/mpesa/payout/callback'
   id:
     | '__root__'
     | '/'
@@ -326,6 +338,7 @@ export interface FileRouteTypes {
     | '/_authenticated/trade/'
     | '/api/public/cron/payouts'
     | '/api/public/mpesa/callback'
+    | '/api/public/mpesa/payout/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -334,6 +347,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ApiPublicCronPayoutsRoute: typeof ApiPublicCronPayoutsRoute
   ApiPublicMpesaCallbackRoute: typeof ApiPublicMpesaCallbackRoute
+  ApiPublicMpesaPayoutCallbackRoute: typeof ApiPublicMpesaPayoutCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -513,6 +527,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicCronPayoutsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/mpesa/payout/callback': {
+      id: '/api/public/mpesa/payout/callback'
+      path: '/api/public/mpesa/payout/callback'
+      fullPath: '/api/public/mpesa/payout/callback'
+      preLoaderRoute: typeof ApiPublicMpesaPayoutCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -590,6 +611,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ApiPublicCronPayoutsRoute: ApiPublicCronPayoutsRoute,
   ApiPublicMpesaCallbackRoute: ApiPublicMpesaCallbackRoute,
+  ApiPublicMpesaPayoutCallbackRoute: ApiPublicMpesaPayoutCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
