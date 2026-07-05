@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { buildWalletActivityItems } from "@/lib/payment-state";
 
 // ============ Client-facing server functions ============
 
@@ -68,11 +69,13 @@ export const getWalletData = createServerFn({ method: "GET" })
       supabase.from("withdrawals").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(20),
       supabase.from("transactions").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(30),
     ]);
+    const activity = buildWalletActivityItems(deposits.data ?? [], withdrawals.data ?? [], txns.data ?? []);
     return {
       wallet: wallet.data,
       deposits: deposits.data ?? [],
       withdrawals: withdrawals.data ?? [],
       transactions: txns.data ?? [],
+      activity,
     };
   });
 
@@ -92,24 +95,13 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
     const fee = Math.round(data.amount * 0.05 * 100) / 100;
     const net = Math.round((data.amount - fee) * 100) / 100;
 
-    // Instant withdrawal: debit wallet + mark paid immediately
     const { data: wd, error } = await supabaseAdmin.from("withdrawals").insert({
       user_id: userId, amount: data.amount, fee, net_amount: net,
-      mpesa_phone: prof.phone, status: "paid",
+      mpesa_phone: prof.phone, status: "pending",
     }).select().single();
     if (error) throw error;
 
-    await supabaseAdmin.from("wallets").update({
-      balance: Number(wallet.balance) - Number(data.amount),
-      total_withdrawn: Number(wallet.total_withdrawn) + Number(data.amount),
-    }).eq("user_id", userId);
-
-    await supabaseAdmin.from("transactions").insert({
-      user_id: userId, kind: "withdrawal", amount: -Number(data.amount),
-      description: `M-Pesa withdrawal to ${prof.phone}`, ref_id: wd.id,
-    });
-
-    return { ok: true, fee, net };
+    return { ok: true, fee, net, status: "pending" };
   });
 
 export const purchasePackage = createServerFn({ method: "POST" })

@@ -41,7 +41,11 @@ function WalletPage() {
   });
   const withdraw = useMutation({
     mutationFn: async () => wd({ data: { amount: Number(wdAmt) } }),
-    onSuccess: (r: any) => { toast.success(`Sent KES ${r?.net ?? ""} to your M-Pesa`); setWdAmt(""); qc.invalidateQueries({ queryKey: ["wallet"] }); },
+    onSuccess: (r: any) => {
+      toast.info(r?.status === "pending" ? "Withdrawal requested. It will show as pending until the payout is confirmed." : `Sent KES ${r?.net ?? ""} to your M-Pesa`);
+      setWdAmt("");
+      qc.invalidateQueries({ queryKey: ["wallet"] });
+    },
     onError: (e: any) => toast.error(e.message ?? "Failed"),
   });
 
@@ -99,12 +103,12 @@ function WalletPage() {
       <div className="mt-6">
         <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">Transactions</h2>
         <div className="space-y-2">
-          {(data?.transactions ?? []).length === 0 && <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No transactions yet.</div>}
-          {(data?.transactions ?? []).map((t: any) => (
+          {(data?.activity ?? []).length === 0 && <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No transactions yet.</div>}
+          {(data?.activity ?? []).map((t: any) => (
             <div key={t.id} className="flex items-center justify-between rounded-lg bg-card px-3 py-2 text-sm">
               <div>
-                <div className="font-medium capitalize">{t.description ?? t.kind}</div>
-                <div className="text-[11px] text-muted-foreground">{new Date(t.created_at).toLocaleString()}</div>
+                <div className="font-medium capitalize">{t.title}</div>
+                <div className="text-[11px] text-muted-foreground">{new Date(t.created_at).toLocaleString()} · {t.status === "pending" ? "Pending" : t.status === "failed" ? "Failed" : "Completed"}</div>
               </div>
               <div className={Number(t.amount) >= 0 ? "text-success" : "text-destructive"}>{Number(t.amount) >= 0 ? "+" : ""}{fmt(t.amount)}</div>
             </div>
