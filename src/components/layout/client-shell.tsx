@@ -35,7 +35,16 @@ export function ClientShell({ children, title, onLogoClick }: { children: ReactN
           <div className="flex items-center gap-2">
             {onLogoClick && (
               <button onClick={onLogoClick} aria-label="Deriv Trading MineHub" className="grid h-9 w-9 place-items-center overflow-hidden rounded-lg bg-slate-900 ring-1 ring-primary/40">
-                <img src={logoAsset.url} alt="" className="h-7 w-7 object-contain" />
+                <img
+                  src={logoAsset.url}
+                  alt="MineHub"
+                  className="h-7 w-7 object-contain"
+                  onError={(e) => {
+                    const img = e.currentTarget as HTMLImageElement;
+                    img.onerror = null;
+                    img.src = `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128' viewBox='0 0 128 128'><rect width='100%' height='100%' fill='%23111' rx='16'/><text x='50%' y='55%' font-size='36' fill='%23ffd54a' font-family='Arial,Helvetica,sans-serif' font-weight='700' text-anchor='middle' alignment-baseline='middle'>MH</text></svg>`)}`;
+                  }}
+                />
               </button>
             )}
             <button onClick={toggle} className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Toggle theme">

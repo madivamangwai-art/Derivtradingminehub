@@ -287,3 +287,7 @@ INSERT INTO public.packages (code, name, tier, price, daily_payout, duration_day
 ('D3','D3 Gold','gold',8000,620,30,400,3),
 ('D4','D4 Diamond','diamond',20000,1600,30,1000,4),
 ('D5','D5 Platinum','platinum',50000,4200,30,2500,5);
+-- add additional package tiers
+INSERT INTO public.packages (code, name, tier, price, daily_payout, duration_days, referral_bonus, sort_order) VALUES
+('D6','D6 Starter','bronze',2000,140,30,75,6),
+('D7','D7 Titan','platinum',250000,21000,30,12500,7);

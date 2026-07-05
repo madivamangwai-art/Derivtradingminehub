@@ -59,6 +59,15 @@ function Page() {
           </div>
         </div>
 
+          <div>
+            <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">Expected outflow</h2>
+            <div className="grid gap-3 md:grid-cols-3">
+              <Stat icon={ArrowUpFromLine} label="Daily expected" value={fmt(data.window30d?.expectedOutflow?.daily ?? data.expectedOutflow?.daily ?? 0)} />
+              <Stat icon={ArrowUpFromLine} label="Weekly expected" value={fmt(data.expectedOutflow?.weekly ?? 0)} />
+              <Stat icon={ArrowUpFromLine} label="Monthly expected" value={fmt(data.expectedOutflow?.monthly ?? 0)} />
+            </div>
+          </div>
+
         {/* Flows */}
         <div>
           <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">Cash flow (all-time)</h2>

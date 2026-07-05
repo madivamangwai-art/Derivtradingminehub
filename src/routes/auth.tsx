@@ -10,7 +10,7 @@ import { isReferralRequired } from "@/lib/elevation.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Coins, Loader2 } from "lucide-react";
+import { Coins, Loader2, Eye, EyeOff } from "lucide-react";
 
 const searchSchema = z.object({
   mode: z.enum(["signin", "signup"]).optional(),
@@ -33,6 +33,8 @@ function AuthPage() {
   const [mode, setMode] = useState<"signin" | "signup">(initialMode ?? "signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [refCode, setRefCode] = useState(ref ?? "");
@@ -53,6 +55,11 @@ function AuthPage() {
     setLoading(true);
     try {
       if (mode === "signup") {
+        if (password !== confirmPassword) {
+          toast.error("Passwords do not match");
+          setLoading(false);
+          return;
+        }
         await createAccountFn({
           email,
           password,
@@ -106,9 +113,18 @@ function AuthPage() {
             </div>
             <div>
               <Label htmlFor="pw">Password</Label>
-              <Input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} maxLength={72} />
+              <div className="flex items-center gap-2">
+                <Input id="pw" type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} maxLength={72} />
+                <button type="button" aria-label="Toggle password visibility" onClick={() => setShowPassword((s) => !s)} className="text-muted-foreground">
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             {mode === "signup" && (
+              <div>
+                <Label htmlFor="pw2">Confirm password</Label>
+                <Input id="pw2" type={showPassword ? "text" : "password"} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} maxLength={72} />
+              </div>
               <div>
                 <Label htmlFor="ref">Referral code {refRequired ? "(required)" : "(optional)"}</Label>
                 <Input id="ref" value={refCode} onChange={(e) => setRefCode(e.target.value)} maxLength={20} placeholder="ABCD1234" required={refRequired} />

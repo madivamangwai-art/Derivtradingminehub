@@ -55,7 +55,7 @@ function WalletPage() {
         created_at: new Date().toISOString(),
         meta: { pending: true },
       }, ...prev]);
-      toast.success(r?.status === "processing" ? `Withdrawal submitted. Funds are being sent to your M-Pesa account now and should arrive within minutes.` : `Withdrawal request recorded`);
+      toast.success(r?.status === "processing" ? `Withdrawal submitted. Funds should arrive in your M-Pesa account shortly.` : `Withdrawal request recorded`);
       setWdAmt("");
       void qc.invalidateQueries({ queryKey: ["wallet"] }).then(() => setPendingActivity([]));
     },

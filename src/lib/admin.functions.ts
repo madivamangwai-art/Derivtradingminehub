@@ -299,6 +299,12 @@ export const adminGetAccounts = createServerFn({ method: "GET" })
     // Coverage ratio: house cash vs client liability
     const coverageRatio = clientLiability > 0 ? houseBalance / clientLiability : null;
 
+    // compute expected outflow from active client packages
+    const { data: activePkgs } = await admin.from("user_packages").select("packages(daily_payout)").eq("status", "active");
+    const expectedDaily = (activePkgs ?? []).reduce((s: number, p: any) => s + Number(p.packages?.daily_payout ?? 0), 0);
+    const expectedWeekly = expectedDaily * 7;
+    const expectedMonthly = expectedDaily * 30;
+
     return {
       totals: {
         totalDeposited,
@@ -313,5 +319,6 @@ export const adminGetAccounts = createServerFn({ method: "GET" })
       spin: { spent: spinSpent, paidOut: spinPaid, retained: spinRetained },
       house: { balance: houseBalance, runwayDays, coverageRatio },
       window30d: { deposits: dep30, withdrawals: wd30, avgDailyDeposit, avgDailyWithdrawal, netDailyOutflow },
+      expectedOutflow: { daily: expectedDaily, weekly: expectedWeekly, monthly: expectedMonthly },
     };
   });
