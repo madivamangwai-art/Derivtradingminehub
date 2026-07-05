@@ -37,6 +37,10 @@ function createSupabaseFallbackClient(message: string) {
       onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } }, error }),
       getSession: async () => ({ data: { session: null }, error }),
       getUser: async () => ({ data: { user: null }, error }),
+      signUp: async () => ({ data: { user: null, session: null }, error }),
+      signInWithPassword: async () => ({ data: { user: null, session: null }, error }),
+      signInWithOAuth: async () => ({ data: { provider: null, url: null }, error }),
+      signOut: async () => ({ error }),
     },
     from: () => {
       const result = createFallbackResponse();

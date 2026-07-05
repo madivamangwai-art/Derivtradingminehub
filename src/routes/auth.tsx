@@ -73,29 +73,6 @@ function AuthPage() {
     }
   };
 
-  const google = async () => {
-    setLoading(true);
-    try {
-      if (refCode) sessionStorage.setItem("pending_ref", refCode.trim().toUpperCase());
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: window.location.origin + "/auth",
-        },
-      });
-      if (error) throw error;
-      if (data.url) {
-        window.location.assign(data.url);
-        return;
-      }
-      navigate({ to: "/home" });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Google sign-in failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="grid min-h-screen place-items-center gradient-hero px-4">
       <div className="w-full max-w-md">
@@ -107,14 +84,6 @@ function AuthPage() {
           <div className="mb-6 flex rounded-lg bg-muted/40 p-1">
             <button onClick={() => setMode("signin")} className={`flex-1 rounded-md py-2 text-sm font-medium transition ${mode === "signin" ? "bg-card text-foreground" : "text-muted-foreground"}`}>Sign in</button>
             <button onClick={() => setMode("signup")} className={`flex-1 rounded-md py-2 text-sm font-medium transition ${mode === "signup" ? "bg-card text-foreground" : "text-muted-foreground"}`}>Sign up</button>
-          </div>
-
-          <Button type="button" variant="secondary" onClick={google} disabled={loading} className="w-full">
-            Continue with Google
-          </Button>
-
-          <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
-            <div className="h-px flex-1 bg-border" /> OR <div className="h-px flex-1 bg-border" />
           </div>
 
           <form onSubmit={submit} className="space-y-3">
