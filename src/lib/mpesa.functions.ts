@@ -86,7 +86,7 @@ export async function queryWithdrawalPayoutStatus({
 }) {
   const { token, baseUrl } = await getMpesaToken();
   const body = {
-    Initiator: initiatorName,
+    InitiatorName: initiatorName,
     SecurityCredential: securityCredential,
     CommandID: 'BusinessPayment',
     PartyA: shortcode,
@@ -130,7 +130,7 @@ export async function initiateWithdrawalPayout({
 
   const { token, baseUrl } = await getMpesaToken();
   const body = {
-    Initiator: initiatorName,
+    InitiatorName: initiatorName,
     SecurityCredential: securityCredential,
     CommandID: commandId,
     Amount: Math.round(amount),
