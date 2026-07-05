@@ -4,10 +4,11 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { readEnvValue } from "@/lib/env";
 
-function mpesaBaseUrl() {
-  return (readEnvValue('MPESA_ENV', 'DARAJA_ENV') ?? "sandbox") === "production"
-    ? "https://api.safaricom.co.ke"
-    : "https://sandbox.safaricom.co.ke";
+function mpesaBaseUrls() {
+  const envValue = (readEnvValue('MPESA_ENV', 'DARAJA_ENV') ?? "sandbox").toLowerCase();
+  const preferred = envValue === "production" ? "https://api.safaricom.co.ke" : "https://sandbox.safaricom.co.ke";
+  const fallback = preferred === "https://api.safaricom.co.ke" ? "https://sandbox.safaricom.co.ke" : "https://api.safaricom.co.ke";
+  return [preferred, fallback];
 }
 
 async function getMpesaToken() {
@@ -15,15 +16,26 @@ async function getMpesaToken() {
   const secret = readEnvValue('MPESA_CONSUMER_SECRET', 'DARAJA_CONSUMER_SECRET');
   if (!key || !secret) throw new Error("M-Pesa credentials not configured.");
   const auth = Buffer.from(`${key}:${secret}`).toString("base64");
-  const res = await fetch(`${mpesaBaseUrl()}/oauth/v1/generate?grant_type=client_credentials`, {
-    headers: { Authorization: `Basic ${auth}` },
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`M-Pesa auth failed (${res.status}). ${body.includes("Invalid") ? "Check MPESA_ENV matches your credentials (sandbox vs production)." : ""}`);
+  const attempts = mpesaBaseUrls();
+
+  let lastError: Error | undefined;
+  for (const baseUrl of attempts) {
+    try {
+      const res = await fetch(`${baseUrl}/oauth/v1/generate?grant_type=client_credentials`, {
+        headers: { Authorization: `Basic ${auth}` },
+      });
+      if (res.ok) {
+        const j = await res.json() as { access_token: string };
+        return { token: j.access_token, baseUrl };
+      }
+      const body = await res.text().catch(() => "");
+      lastError = new Error(`M-Pesa auth failed (${res.status}) for ${baseUrl}. ${body.includes("Invalid") ? "Check MPESA_ENV matches your credentials (sandbox vs production)." : body}`);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
   }
-  const j = await res.json() as { access_token: string };
-  return j.access_token;
+
+  throw lastError ?? new Error("M-Pesa auth failed.");
 }
 
 function normalizePhone(phone: string): string {
@@ -53,7 +65,7 @@ export const initiateStkPush = createServerFn({ method: "POST" })
     const { data: prof } = await supabase.from("profiles").select("phone").eq("id", userId).maybeSingle();
     if (!prof?.phone) throw new Error("Please set your phone number in the My tab first.");
 
-    const token = await getMpesaToken();
+    const { token, baseUrl } = await getMpesaToken();
     const { timestamp, password } = tsAndPassword(shortcode, passkey);
     const phone = normalizePhone(prof.phone);
 
@@ -89,7 +101,7 @@ export const initiateStkPush = createServerFn({ method: "POST" })
       TransactionDesc: "MineHub Deposit",
     };
 
-    const res = await fetch(`${mpesaBaseUrl()}/mpesa/stkpush/v1/processrequest`, {
+    const res = await fetch(`${baseUrl}/mpesa/stkpush/v1/processrequest`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -119,7 +131,7 @@ export const initiateStkPush = createServerFn({ method: "POST" })
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 3000));
       try {
-        const qr = await fetch(`${mpesaBaseUrl()}/mpesa/stkpushquery/v1/query`, {
+        const qr = await fetch(`${baseUrl}/mpesa/stkpushquery/v1/query`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify(queryBody()),
