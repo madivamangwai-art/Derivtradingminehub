@@ -93,6 +93,8 @@ export async function queryWithdrawalPayoutStatus({
   originatorConversationId?: string;
 }) {
   const { token, baseUrl } = await getMpesaToken();
+  const queueUrl = await resolvePublicBaseUrl();
+  const resultUrl = await resolvePublicBaseUrl();
   const body = {
     InitiatorName: initiatorName,
     SecurityCredential: securityCredential,
@@ -100,8 +102,8 @@ export async function queryWithdrawalPayoutStatus({
     PartyA: shortcode,
     IdentifierType: 4,
     Remarks: 'MineHub payout status check',
-    QueueTimeOutURL: resolvePublicBaseUrl(),
-    ResultURL: resolvePublicBaseUrl(),
+    QueueTimeOutURL: readEnvValue('MPESA_B2C_QUEUE_URL', 'DARAJA_B2C_QUEUE_URL', 'DARAJA_B2C_TIMEOUT_URL') ?? queueUrl,
+    ResultURL: readEnvValue('MPESA_B2C_RESULT_URL', 'DARAJA_B2C_RESULT_URL') ?? resultUrl,
     ConversationID: conversationId,
     OriginatorConversationID: originatorConversationId,
   };
@@ -149,6 +151,8 @@ export async function initiateWithdrawalPayout({
   }
 
   const { token, baseUrl } = await getMpesaToken();
+  const queueUrl = await resolvePublicBaseUrl();
+  const resultUrl = await resolvePublicBaseUrl();
   const body = {
     InitiatorName: initiatorName,
     SecurityCredential: securityCredential,
@@ -157,13 +161,10 @@ export async function initiateWithdrawalPayout({
     PartyA: shortcode,
     PartyB: normalizePhone(phone),
     Remarks: `MineHub withdrawal ${withdrawalId.slice(0, 8)}`,
-    QueueTimeOutURL: readEnvValue('MPESA_B2C_QUEUE_URL', 'DARAJA_B2C_TIMEOUT_URL') ?? queueUrl,
+    QueueTimeOutURL: readEnvValue('MPESA_B2C_QUEUE_URL', 'DARAJA_B2C_QUEUE_URL', 'DARAJA_B2C_TIMEOUT_URL') ?? queueUrl,
     ResultURL: readEnvValue('MPESA_B2C_RESULT_URL', 'DARAJA_B2C_RESULT_URL') ?? resultUrl,
     Occasion: `withdrawal-${withdrawalId.slice(0, 8)}`,
   };
-
-  const queueUrl = await resolvePublicBaseUrl();
-  const resultUrl = await resolvePublicBaseUrl();
 
   const res = await fetch(`${baseUrl}/mpesa/b2c/v1/paymentrequest`, {
     method: 'POST',
