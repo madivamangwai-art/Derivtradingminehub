@@ -122,8 +122,8 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
     if (!prof?.phone) throw new Error("Please set your phone number in the My tab first.");
     const { data: wallet } = await supabaseAdmin.from("wallets").select("*").eq("user_id", userId).maybeSingle();
     if (!wallet || Number(wallet.balance) < data.amount) throw new Error("Insufficient balance");
-    const fee = 0;
-    const net = Number(data.amount);
+    const fee = Math.round(Number(data.amount) * WITHDRAWAL_FEE_RATE * 100) / 100;
+    const net = Math.round((Number(data.amount) - fee) * 100) / 100;
 
     const { data: wd, error } = await supabaseAdmin.from("withdrawals").insert({
       user_id: userId, amount: data.amount, fee, net_amount: net,
@@ -132,7 +132,8 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
     if (error) throw error;
 
     try {
-      const payout = await initiateWithdrawalPayout({ phone: prof.phone, amount: Number(data.amount), withdrawalId: wd.id });
+      // Send net amount to provider so the user receives amount - fee
+      const payout = await initiateWithdrawalPayout({ phone: prof.phone, amount: Number(net), withdrawalId: wd.id });
       const conversationId = payout?.ConversationID ?? null;
       const originatorConversationId = payout?.OriginatorConversationID ?? null;
       const responseCode = String(payout?.ResponseCode ?? payout?.responseCode ?? "");
@@ -151,12 +152,13 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
         const { data: w } = await supabaseAdmin.from("wallets").select("*").eq("user_id", userId).maybeSingle();
         if (w) {
           await supabaseAdmin.from("wallets").update({
+            // deduct gross amount from wallet
             balance: Number(w.balance) - Number(data.amount),
             total_withdrawn: Number(w.total_withdrawn ?? 0) + Number(data.amount),
           }).eq("user_id", userId);
         }
         await supabaseAdmin.from("transactions").insert({
-          user_id: userId, kind: "withdrawal", amount: -Number(data.amount), description: "Withdrawal completed", ref_id: wd.id,
+          user_id: userId, kind: "withdrawal", amount: -Number(data.amount), description: `Withdrawal completed (sent ${net})`, ref_id: wd.id,
         });
         return { ok: true, fee, net, status: "success", withdrawal_id: wd.id };
       }

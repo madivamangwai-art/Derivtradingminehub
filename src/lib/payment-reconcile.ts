@@ -128,12 +128,26 @@ export async function reconcilePendingWalletActivity(supabaseAdmin: AdminClient,
   let withdrawalUpdates = 0;
 
   for (const dep of deposits ?? []) {
-    const { data: existingTx } = await supabaseAdmin.from("transactions")
+    let { data: existingTx } = await supabaseAdmin.from("transactions")
       .select("id")
       .eq("user_id", userId)
       .eq("kind", "deposit")
       .eq("ref_id", dep.id)
       .maybeSingle();
+    // fuzzy match if ref_id wasn't set: match by amount and timestamp proximity
+    if (!existingTx) {
+      const from = new Date(new Date(dep.created_at).getTime() - 60 * 1000).toISOString();
+      const to = new Date(new Date(dep.created_at).getTime() + 5 * 60 * 1000).toISOString();
+      const { data: fuzzy } = await supabaseAdmin.from("transactions")
+        .select("id,created_at,amount,ref_id")
+        .eq("user_id", userId)
+        .eq("kind", "deposit")
+        .eq("amount", Number(dep.amount))
+        .gte("created_at", from)
+        .lte("created_at", to)
+        .limit(1);
+      existingTx = (fuzzy ?? [])[0] ?? null;
+    }
     if (existingTx) {
       await supabaseAdmin.from("deposits").update({ status: "success" }).eq("id", dep.id);
       depositUpdates += 1;
@@ -141,12 +155,25 @@ export async function reconcilePendingWalletActivity(supabaseAdmin: AdminClient,
   }
 
   for (const wd of withdrawals ?? []) {
-    const { data: existingTx } = await supabaseAdmin.from("transactions")
+    let { data: existingTx } = await supabaseAdmin.from("transactions")
       .select("id")
       .eq("user_id", userId)
       .eq("kind", "withdrawal")
       .eq("ref_id", wd.id)
       .maybeSingle();
+    if (!existingTx) {
+      const from = new Date(new Date(wd.created_at).getTime() - 60 * 1000).toISOString();
+      const to = new Date(new Date(wd.created_at).getTime() + 5 * 60 * 1000).toISOString();
+      const { data: fuzzy } = await supabaseAdmin.from("transactions")
+        .select("id,created_at,amount,ref_id")
+        .eq("user_id", userId)
+        .eq("kind", "withdrawal")
+        .eq("amount", -Number(wd.amount))
+        .gte("created_at", from)
+        .lte("created_at", to)
+        .limit(1);
+      existingTx = (fuzzy ?? [])[0] ?? null;
+    }
     if (existingTx) {
       await supabaseAdmin.from("withdrawals").update({ status: "success" }).eq("id", wd.id);
       withdrawalUpdates += 1;

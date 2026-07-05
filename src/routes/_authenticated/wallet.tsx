@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { getWalletData, requestWithdrawal, getMyProfile } from "@/lib/app.functions";
+import { getWalletData, requestWithdrawal, getMyProfile, WITHDRAWAL_FEE_RATE } from "@/lib/app.functions";
 import { initiateStkPush } from "@/lib/mpesa.functions";
 import { ClientShell } from "@/components/layout/client-shell";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,8 @@ function WalletPage() {
     mutationFn: async () => wd({ data: { amount: Number(wdAmt) } }),
     onSuccess: (r: any) => {
       const amount = Number(wdAmt);
+      const fee = Math.round(amount * WITHDRAWAL_FEE_RATE * 100) / 100;
+      const net = Math.round((amount - fee) * 100) / 100;
       setPendingActivity((prev) => [{
         id: r?.withdrawal_id ?? `withdrawal:${Date.now()}`,
         kind: "withdrawal",
@@ -51,7 +53,7 @@ function WalletPage() {
         amount: -amount,
         status: r?.status === "success" ? "success" : "processing",
         created_at: new Date().toISOString(),
-        meta: { pending: true },
+        meta: { pending: true, net },
       }, ...prev]);
       toast.success(r?.status === "processing" ? `Withdrawal submitted. Funds are being sent to your M-Pesa account now and should arrive within minutes.` : `Withdrawal request recorded`);
       setWdAmt("");
@@ -115,7 +117,7 @@ function WalletPage() {
             {Number(wdAmt) > 0 && (
               <div className="rounded-lg bg-muted/40 px-3 py-2 text-xs">
                 <div className="flex justify-between"><span className="text-muted-foreground">Requested</span><span>{fmt(Number(wdAmt))}</span></div>
-                <div className="mt-1 flex justify-between border-t border-border/60 pt-1 font-medium"><span>You receive</span><span>{fmt(Number(wdAmt))}</span></div>
+                <div className="mt-1 flex justify-between border-t border-border/60 pt-1 font-medium"><span>You receive</span><span>{fmt(Math.round((Number(wdAmt) * (1 - WITHDRAWAL_FEE_RATE)) * 100) / 100)}</span></div>
               </div>
             )}
             <Button onClick={() => withdraw.mutate()} disabled={withdraw.isPending || !wdAmt || !phone} className="w-full" variant="secondary">
