@@ -1,9 +1,10 @@
 import { createFileRoute, Link, useNavigate, redirect } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { getFriendlyAuthMessage } from "@/lib/auth.functions";
+import { createAccountWithoutConfirmation, getFriendlyAuthMessage } from "@/lib/auth.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,6 +42,7 @@ function AuthPage() {
   const [refCode, setRefCode] = useState(ref ?? "");
   const [loading, setLoading] = useState(false);
   const [refRequired, setRefRequired] = useState(false);
+  const createAccountFn = useServerFn(createAccountWithoutConfirmation);
 
   useEffect(() => { if (ref) setRefCode(ref); }, [ref]);
 
@@ -81,28 +83,21 @@ function AuthPage() {
           return;
         }
 
-        const { data, error } = await supabase.auth.signUp({
+        const result = await createAccountFn({
           email,
           password,
-          options: {
-            data: {
-              full_name: fullName.trim(),
-              phone: phone.trim(),
-              referred_by_code: refCode.trim().toUpperCase() || undefined,
-            },
-          },
+          fullName,
+          phone,
+          refCode: refCode.trim(),
         });
 
-        if (error) throw error;
-
-        if (data.session) {
+        if (result?.ok) {
           toast.success("Account created successfully.");
           navigate({ to: "/home" });
           return;
         }
 
-        toast.success("Account created. Please check your inbox to confirm your email.");
-        return;
+        throw new Error("Account creation failed.");
       }
 
       const { error } = await supabase.auth.signInWithPassword({ email, password });
