@@ -101,11 +101,6 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
     }).select().single();
     if (error) throw error;
 
-    await supabaseAdmin.from("transactions").insert({
-      user_id: userId, kind: "withdrawal", amount: -Number(data.amount),
-      description: `Withdrawal requested to ${prof.phone}`, ref_id: wd.id,
-    });
-
     return { ok: true, fee, net, status: "pending" };
   });
 
