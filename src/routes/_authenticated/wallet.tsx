@@ -84,7 +84,7 @@ function WalletPage() {
 
         <TabsContent value="withdraw" className="glass-card mt-3 rounded-2xl p-4">
           <div className="space-y-3">
-            <div><Label>Amount (KES)</Label><Input type="number" min={100} value={wdAmt} onChange={(e) => setWdAmt(e.target.value)} /></div>
+            <div><Label>Amount (KES)</Label><Input type="number" value={wdAmt} onChange={(e) => setWdAmt(e.target.value)} /></div>
             {Number(wdAmt) > 0 && (
               <div className="rounded-lg bg-muted/40 px-3 py-2 text-xs">
                 <div className="flex justify-between"><span className="text-muted-foreground">Requested</span><span>{fmt(Number(wdAmt))}</span></div>

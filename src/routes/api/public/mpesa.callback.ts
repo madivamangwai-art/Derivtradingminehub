@@ -17,7 +17,8 @@ export const Route = createFileRoute("/api/public/mpesa/callback")({
           if (!dep) return Response.json({ ok: true });
           if (dep.status !== "pending") return Response.json({ ok: true });
 
-          if (resultCode === 0) {
+          const normalizedResultCode = String(resultCode ?? "").trim();
+          if (normalizedResultCode === "0" || normalizedResultCode.toLowerCase() === "success") {
             const items = (stk.CallbackMetadata?.Item ?? []) as Array<{ Name: string; Value: any }>;
             const receipt = items.find((i) => i.Name === "MpesaReceiptNumber")?.Value as string | undefined;
             const amount = Number(items.find((i) => i.Name === "Amount")?.Value ?? dep.amount);

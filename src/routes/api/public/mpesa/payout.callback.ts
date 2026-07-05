@@ -13,7 +13,7 @@ export const Route = createFileRoute("/api/public/mpesa/payout/callback")({
           const transactionId = payload?.TransactionID ?? payload?.Result?.TransactionID;
 
           const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-          let query = supabaseAdmin.from("withdrawals").select("*").eq("status", "processing");
+          let query = supabaseAdmin.from("withdrawals").select("*").in("status", ["pending", "processing"]);
           if (conversationId) query = query.or(`conversation_id.eq.${conversationId},originator_conversation_id.eq.${conversationId}`);
           if (originatorConversationId) query = query.or(`conversation_id.eq.${originatorConversationId},originator_conversation_id.eq.${originatorConversationId}`);
           const { data: wds } = await query;
