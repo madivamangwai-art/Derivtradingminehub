@@ -3,7 +3,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getDashboard, getMyProfile, claimPackagePayout } from "@/lib/app.functions";
 import { ClientShell } from "@/components/layout/client-shell";
-import { ArrowDownToLine, ArrowUpFromLine, TrendingUp, Users, Wallet as WalletIcon, Sparkles } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  TrendingUp,
+  Users,
+  Wallet as WalletIcon,
+  Sparkles,
+} from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,7 +20,8 @@ export const Route = createFileRoute("/_authenticated/home")({
   component: HomePage,
 });
 
-const fmt = (n: number | string) => `KES ${Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+const fmt = (n: number | string) =>
+  `KES ${Number(n).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
 function HomePage() {
   const fn = useServerFn(getDashboard);
@@ -25,21 +33,21 @@ function HomePage() {
 
   const wallet = data?.wallet;
   const activeCount = data?.activePackages.length ?? 0;
-  const dailyTotal = (data?.activePackages ?? []).reduce((s, p: any) => s + Number(p.packages?.daily_payout ?? 0), 0);
+  const dailyTotal = (data?.activePackages ?? []).reduce(
+    (s, p: any) => s + Number(p.packages?.daily_payout ?? 0),
+    0,
+  );
   const isAdmin = prof?.isAdmin ?? false;
 
   const [selectedPkg, setSelectedPkg] = useState<any>(null);
 
-  const handleLogoClick = () => {
-    if (isAdmin) {
-      navigate({ to: "/admin/clients" });
-      return;
-    }
-    toast.info("Admin access is granted by an existing administrator from the Users section.");
-  };
+  const handleLogoClick = isAdmin ? () => navigate({ to: "/admin/clients" }) : undefined;
 
   return (
-    <ClientShell title={`Hi, ${data?.profile?.full_name?.split(" ")[0] ?? "Miner"}`} onLogoClick={handleLogoClick}>
+    <ClientShell
+      title={`Hi, ${data?.profile?.full_name?.split(" ")[0] ?? "Miner"}`}
+      onLogoClick={handleLogoClick}
+    >
       <div className="glass-card rounded-2xl p-5">
         <div className="flex items-center justify-between text-xs uppercase text-muted-foreground">
           <span>Wallet balance</span>
@@ -51,10 +59,16 @@ function HomePage() {
           <span>Deposited: {fmt(wallet?.total_deposited ?? 0)}</span>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <button onClick={() => navigate({ to: "/wallet" })} className="flex items-center justify-center gap-2 rounded-xl gradient-gold py-3 text-sm font-semibold">
+          <button
+            onClick={() => navigate({ to: "/wallet" })}
+            className="flex items-center justify-center gap-2 rounded-xl gradient-gold py-3 text-sm font-semibold"
+          >
             <ArrowDownToLine className="h-4 w-4" /> Deposit
           </button>
-          <button onClick={() => navigate({ to: "/wallet" })} className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card py-3 text-sm font-semibold">
+          <button
+            onClick={() => navigate({ to: "/wallet" })}
+            className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card py-3 text-sm font-semibold"
+          >
             <ArrowUpFromLine className="h-4 w-4" /> Withdraw
           </button>
         </div>
@@ -66,25 +80,58 @@ function HomePage() {
         <StatCard icon={Users} label="Referrals" value={String(data?.referralCount ?? 0)} />
       </div>
 
-      <Section title="Active packages" action={<Link to="/trade/mine" className="text-xs text-primary">Buy more</Link>}>
+      <Section
+        title="Active packages"
+        action={
+          <Link to="/trade/mine" className="text-xs text-primary">
+            Buy more
+          </Link>
+        }
+      >
         {(data?.activePackages ?? []).length === 0 ? (
-          <EmptyState title="No active packages" body="Head to Trade to buy your first mining package." action={<Link to="/trade/mine" className="rounded-lg gradient-gold px-4 py-2 text-xs font-semibold">Browse packages</Link>} />
+          <EmptyState
+            title="No active packages"
+            body="Head to Trade to buy your first mining package."
+            action={
+              <Link
+                to="/trade/mine"
+                className="rounded-lg gradient-gold px-4 py-2 text-xs font-semibold"
+              >
+                Browse packages
+              </Link>
+            }
+          />
         ) : (
           <div className="space-y-2">
             {(data?.activePackages ?? []).map((p: any) => {
-              const daysLeft = Math.max(0, Math.ceil((new Date(p.expires_at).getTime() - Date.now()) / 86400000));
+              const daysLeft = Math.max(
+                0,
+                Math.ceil((new Date(p.expires_at).getTime() - Date.now()) / 86400000),
+              );
               const pending = p.pending ?? { amount: 0, days: 0, nextBoundaryIso: null };
               const canClaim = pending.amount > 0;
               return (
-                <button key={p.id} onClick={() => setSelectedPkg(p)} className="glass-card w-full rounded-xl p-4 text-left transition hover:ring-2 hover:ring-primary/50">
+                <button
+                  key={p.id}
+                  onClick={() => setSelectedPkg(p)}
+                  className="glass-card w-full rounded-xl p-4 text-left transition hover:ring-2 hover:ring-primary/50"
+                >
                   <div className="flex items-center justify-between">
                     <div className="font-semibold">{p.packages?.name}</div>
-                    <div className={`rounded-full px-2 py-0.5 text-xs ${canClaim ? "bg-success/20 text-success" : "bg-primary/15 text-primary"}`}>
+                    <div
+                      className={`rounded-full px-2 py-0.5 text-xs ${canClaim ? "bg-success/20 text-success" : "bg-primary/15 text-primary"}`}
+                    >
                       {canClaim ? `Claim ${fmt(pending.amount)}` : `${daysLeft}d left`}
                     </div>
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">Paid out: {fmt(p.total_paid_out)} · Daily {fmt(p.packages?.daily_payout)}</div>
-                  {pending.days > 0 && <div className="mt-1 text-[11px] text-success">{pending.days} day{pending.days > 1 ? "s" : ""} ready · tap to claim</div>}
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Paid out: {fmt(p.total_paid_out)} · Daily {fmt(p.packages?.daily_payout)}
+                  </div>
+                  {pending.days > 0 && (
+                    <div className="mt-1 text-[11px] text-success">
+                      {pending.days} day{pending.days > 1 ? "s" : ""} ready · tap to claim
+                    </div>
+                  )}
                 </button>
               );
             })}
@@ -96,17 +143,25 @@ function HomePage() {
 
       <Section title="Recent activity">
         {(data?.recentTransactions ?? []).length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No activity yet.</div>
+          <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            No activity yet.
+          </div>
         ) : (
           <div className="space-y-2">
             {(data?.recentTransactions ?? []).map((t: any) => (
-              <div key={t.id} className="flex items-center justify-between rounded-lg bg-card px-3 py-2 text-sm">
+              <div
+                key={t.id}
+                className="flex items-center justify-between rounded-lg bg-card px-3 py-2 text-sm"
+              >
                 <div>
                   <div className="font-medium">{t.description ?? t.kind}</div>
-                  <div className="text-[11px] text-muted-foreground">{new Date(t.created_at).toLocaleString()}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {new Date(t.created_at).toLocaleString()}
+                  </div>
                 </div>
                 <div className={Number(t.amount) >= 0 ? "text-success" : "text-destructive"}>
-                  {Number(t.amount) >= 0 ? "+" : ""}{fmt(t.amount)}
+                  {Number(t.amount) >= 0 ? "+" : ""}
+                  {fmt(t.amount)}
                 </div>
               </div>
             ))}
@@ -126,18 +181,36 @@ function StatCard({ icon: Icon, label, value }: { icon: any; label: string; valu
     </div>
   );
 }
-function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
+function Section({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="mt-6">
       <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{title}</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          {title}
+        </h2>
         {action}
       </div>
       {children}
     </div>
   );
 }
-function EmptyState({ title, body, action }: { title: string; body: string; action?: React.ReactNode }) {
+function EmptyState({
+  title,
+  body,
+  action,
+}: {
+  title: string;
+  body: string;
+  action?: React.ReactNode;
+}) {
   return (
     <div className="rounded-xl border border-dashed border-border p-6 text-center">
       <WalletIcon className="mx-auto mb-2 h-6 w-6 text-muted-foreground" />
@@ -163,12 +236,17 @@ function PackageClaimDialog({ pkg, onClose }: { pkg: any; onClose: () => void })
   });
   if (!pkg) return null;
   const pending = pkg.pending ?? { amount: 0, days: 0, nextBoundaryIso: null };
-  const daysLeft = Math.max(0, Math.ceil((new Date(pkg.expires_at).getTime() - Date.now()) / 86400000));
+  const daysLeft = Math.max(
+    0,
+    Math.ceil((new Date(pkg.expires_at).getTime() - Date.now()) / 86400000),
+  );
   const nextAt = pending.nextBoundaryIso ? new Date(pending.nextBoundaryIso) : null;
   return (
     <Dialog open={!!pkg} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
-        <DialogHeader><DialogTitle>{pkg.packages?.name}</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>{pkg.packages?.name}</DialogTitle>
+        </DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-lg bg-muted/40 p-3">
@@ -185,7 +263,9 @@ function PackageClaimDialog({ pkg, onClose }: { pkg: any; onClose: () => void })
             </div>
             <div className="rounded-lg bg-muted/40 p-3">
               <div className="text-[10px] uppercase text-muted-foreground">Expires</div>
-              <div className="font-semibold text-xs">{new Date(pkg.expires_at).toLocaleDateString()}</div>
+              <div className="font-semibold text-xs">
+                {new Date(pkg.expires_at).toLocaleDateString()}
+              </div>
             </div>
           </div>
           <div className={`rounded-xl p-4 ${pending.amount > 0 ? "bg-success/15" : "bg-muted/30"}`}>
@@ -194,11 +274,21 @@ function PackageClaimDialog({ pkg, onClose }: { pkg: any; onClose: () => void })
             <div className="mt-1 text-[11px] text-muted-foreground">
               {pending.days > 0
                 ? `${pending.days} day${pending.days > 1 ? "s" : ""} accumulated. Unclaimed payouts keep piling up.`
-                : nextAt ? `Next payout unlocks ${nextAt.toLocaleString()}` : "Payouts unlock daily at 01:00."}
+                : nextAt
+                  ? `Next payout unlocks ${nextAt.toLocaleString()}`
+                  : "Payouts unlock daily at 01:00."}
             </div>
           </div>
-          <Button onClick={() => claim.mutate()} disabled={claim.isPending || pending.amount <= 0} className="w-full gradient-gold">
-            {claim.isPending ? "Claiming…" : pending.amount > 0 ? `Claim ${fmt(pending.amount)}` : "Nothing to claim yet"}
+          <Button
+            onClick={() => claim.mutate()}
+            disabled={claim.isPending || pending.amount <= 0}
+            className="w-full gradient-gold"
+          >
+            {claim.isPending
+              ? "Claiming…"
+              : pending.amount > 0
+                ? `Claim ${fmt(pending.amount)}`
+                : "Nothing to claim yet"}
           </Button>
         </div>
       </DialogContent>

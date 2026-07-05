@@ -3,10 +3,17 @@ import { z } from "zod";
 
 export function getFriendlyAuthMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "";
-  const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code?: unknown }).code ?? "")
+      : "";
   const text = `${code} ${message}`.toLowerCase();
 
-  if (text.includes("missing supabase environment variable") || text.includes("missing supabase") || text.includes("service role key")) {
+  if (
+    text.includes("missing supabase environment variable") ||
+    text.includes("missing supabase") ||
+    text.includes("service role key")
+  ) {
     return "Signup is temporarily unavailable because the authentication service is not configured. Please contact support.";
   }
 
@@ -18,29 +25,61 @@ export function getFriendlyAuthMessage(error: unknown) {
     return "Please choose a stronger password with at least 6 characters.";
   }
 
-  if (text.includes("invalid_credentials") || text.includes("invalid login") || text.includes("wrong password")) {
+  if (
+    text.includes("invalid_credentials") ||
+    text.includes("invalid login") ||
+    text.includes("wrong password")
+  ) {
     return "The email or password you entered is incorrect.";
   }
 
   if (text.includes("network") || text.includes("fetch") || text.includes("timed out")) {
-    return "We couldn’t reach the service right now. Please check your connection and try again.";
+    return "We couldn't reach the service right now. Please check your connection and try again.";
   }
 
   if (text.includes("rate limit") || text.includes("too many requests")) {
     return "Too many attempts were made. Please wait a moment and try again.";
   }
 
-  return "We couldn’t complete that request. Please try again in a moment.";
+  if (
+    text.includes("database") ||
+    text.includes("trigger") ||
+    text.includes("profile") ||
+    text.includes("wallet")
+  ) {
+    return "Your account was created, but setup could not finish. Please contact support.";
+  }
+
+  return "We couldn't complete that request. Please try again in a moment.";
 }
 
-async function createInitialUserRecords(supabaseAdmin: any, userId: string, email: string, fullName: string, phone: string, refCode?: string) {
+function throwIfSupabaseError(result: { error?: unknown }, action: string) {
+  if (!result.error) return;
+
+  const message = result.error instanceof Error ? result.error.message : String(result.error);
+  throw new Error(`${action}: ${message}`);
+}
+
+async function createInitialUserRecords(
+  supabaseAdmin: any,
+  userId: string,
+  email: string,
+  fullName: string,
+  phone: string,
+  refCode?: string,
+) {
   const normalizedEmail = email.trim().toLowerCase();
   const trimmedRefCode = refCode?.trim().toUpperCase();
   let referredBy: string | null = null;
 
   if (trimmedRefCode) {
-    const { data: referrer } = await supabaseAdmin.from("profiles").select("id").eq("referral_code", trimmedRefCode).maybeSingle();
-    if (referrer?.id) referredBy = referrer.id;
+    const referrerResult = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .eq("referral_code", trimmedRefCode)
+      .maybeSingle();
+    throwIfSupabaseError(referrerResult, "Could not validate referral code");
+    if (referrerResult.data?.id) referredBy = referrerResult.data.id;
   }
 
   let referralCode = "";
@@ -50,55 +89,74 @@ async function createInitialUserRecords(supabaseAdmin: any, userId: string, emai
       .replace(/[^A-Z]/g, "")
       .slice(0, 4)
       .padEnd(3, "X");
-    const suffix = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
+    const suffix = Math.floor(Math.random() * 1000)
+      .toString()
+      .padStart(3, "0");
     referralCode = `${prefix}${suffix}`;
-    const { data: existing } = await supabaseAdmin.from("profiles").select("id").eq("referral_code", referralCode).maybeSingle();
-    if (!existing) break;
+    const existingResult = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .eq("referral_code", referralCode)
+      .maybeSingle();
+    throwIfSupabaseError(existingResult, "Could not generate referral code");
+    if (!existingResult.data) break;
   }
 
-  await supabaseAdmin.from("profiles").upsert({
-    id: userId,
-    email: normalizedEmail,
-    full_name: fullName.trim(),
-    phone: phone.trim(),
-    referral_code: referralCode,
-    referred_by: referredBy,
-  }, { onConflict: "id" });
+  const profileResult = await supabaseAdmin.from("profiles").upsert(
+    {
+      id: userId,
+      email: normalizedEmail,
+      full_name: fullName.trim(),
+      phone: phone.trim(),
+      referral_code: referralCode,
+      referred_by: referredBy,
+    },
+    { onConflict: "id" },
+  );
+  throwIfSupabaseError(profileResult, "Could not create profile");
 
-  await supabaseAdmin.from("wallets").upsert({
-    user_id: userId,
-    balance: 0,
-    total_earned: 0,
-    total_deposited: 0,
-    total_withdrawn: 0,
-  }, { onConflict: "user_id" });
+  const walletResult = await supabaseAdmin.from("wallets").upsert(
+    {
+      user_id: userId,
+      balance: 0,
+      total_earned: 0,
+      total_deposited: 0,
+      total_withdrawn: 0,
+    },
+    { onConflict: "user_id" },
+  );
+  throwIfSupabaseError(walletResult, "Could not create wallet");
 
-  await supabaseAdmin.from("user_roles").upsert({
-    user_id: userId,
-    role: "client",
-  }, { onConflict: "user_id,role" });
+  const roleResult = await supabaseAdmin.from("user_roles").upsert(
+    {
+      user_id: userId,
+      role: "client",
+    },
+    { onConflict: "user_id,role" },
+  );
+  throwIfSupabaseError(roleResult, "Could not assign client role");
 }
 
 export const createAccountWithoutConfirmation = createServerFn({ method: "POST" })
-  .inputValidator((data: {
-    email: string;
-    password: string;
-    fullName: string;
-    phone: string;
-    refCode?: string;
-  }) =>
-    z
-      .object({
-        email: z.string().email(),
-        password: z.string().min(6).max(72),
-        fullName: z.string().min(1).max(80),
-        phone: z.string().min(1).max(15),
-        refCode: z.string().max(20).optional(),
-      })
-      .parse(data),
+  .inputValidator(
+    (data: {
+      email: string;
+      password: string;
+      fullName: string;
+      phone: string;
+      refCode?: string;
+    }) =>
+      z
+        .object({
+          email: z.string().email(),
+          password: z.string().min(6).max(72),
+          fullName: z.string().min(1).max(80),
+          phone: z.string().min(1).max(15),
+          refCode: z.string().max(20).optional(),
+        })
+        .parse(data),
   )
   .handler(async ({ data }) => {
-    const { supabase } = await import("@/integrations/supabase/client");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     try {
@@ -114,51 +172,26 @@ export const createAccountWithoutConfirmation = createServerFn({ method: "POST" 
       });
 
       if (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const shouldFallbackToPublicSignup = /missing supabase|service role key|not configured|invalid api key|not found/i.test(message);
-
-        if (!shouldFallbackToPublicSignup) {
-          console.error("Account creation failed", error);
-          throw error;
-        }
-      } else if (created.user) {
-        await createInitialUserRecords(
-          supabaseAdmin,
-          created.user.id,
-          data.email,
-          data.fullName,
-          data.phone,
-          data.refCode,
-        );
-
-        return { ok: true, userId: created.user.id };
+        console.error("Account creation failed", error);
+        throw error;
       }
 
-      const { data: publicSignupData, error: publicSignupError } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-        options: {
-          data: {
-            full_name: data.fullName,
-            phone: data.phone,
-            referred_by_code: data.refCode?.trim().toUpperCase() || undefined,
-          },
-        },
-      });
-
-      if (publicSignupError) {
-        console.error("Public signup fallback failed", publicSignupError);
-        throw publicSignupError;
-      }
-
-      if (!publicSignupData.user) {
+      if (!created.user) {
         throw new Error("Account creation failed.");
       }
 
-      return { ok: true, userId: publicSignupData.user.id };
+      await createInitialUserRecords(
+        supabaseAdmin,
+        created.user.id,
+        data.email,
+        data.fullName,
+        data.phone,
+        data.refCode,
+      );
+
+      return { ok: true, userId: created.user.id };
     } catch (error) {
       console.error("Account creation failed", error);
       throw new Error(getFriendlyAuthMessage(error));
     }
   });
-

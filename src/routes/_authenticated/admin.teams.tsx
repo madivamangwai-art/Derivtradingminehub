@@ -5,10 +5,20 @@ import { adminGetTeamTree } from "@/lib/admin.functions";
 import { AdminShell } from "@/components/layout/admin-shell";
 import Tree from "react-d3-tree";
 import { useMemo } from "react";
+import { requireAdminRoute } from "@/lib/admin-route";
 
-export const Route = createFileRoute("/_authenticated/admin/teams")({ component: TeamsPage });
+export const Route = createFileRoute("/_authenticated/admin/teams")({
+  beforeLoad: requireAdminRoute,
+  component: TeamsPage,
+});
 
-type Profile = { id: string; full_name: string | null; email: string | null; referral_code: string; referred_by: string | null };
+type Profile = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  referral_code: string;
+  referred_by: string | null;
+};
 type TreeNode = { name: string; attributes?: Record<string, string>; children?: TreeNode[] };
 
 function buildForest(profiles: Profile[]): TreeNode[] {
@@ -46,10 +56,11 @@ function TeamsPage() {
             separation={{ siblings: 1.2, nonSiblings: 1.6 }}
           />
         ) : (
-          <div className="grid h-full place-items-center text-sm text-muted-foreground">Loading team tree…</div>
+          <div className="grid h-full place-items-center text-sm text-muted-foreground">
+            Loading team tree…
+          </div>
         )}
       </div>
     </AdminShell>
   );
 }
-

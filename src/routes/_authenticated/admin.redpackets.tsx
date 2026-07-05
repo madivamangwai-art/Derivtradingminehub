@@ -3,8 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { adminListRedPackets } from "@/lib/admin.functions";
 import { AdminShell } from "@/components/layout/admin-shell";
+import { requireAdminRoute } from "@/lib/admin-route";
 
-export const Route = createFileRoute("/_authenticated/admin/redpackets")({ component: RedPacketsAdmin });
+export const Route = createFileRoute("/_authenticated/admin/redpackets")({
+  beforeLoad: requireAdminRoute,
+  component: RedPacketsAdmin,
+});
 
 const fmt = (n: any) => `KES ${Number(n ?? 0).toLocaleString()}`;
 
@@ -24,23 +28,45 @@ function RedPacketsAdmin() {
       </div>
       <div className="glass-card overflow-hidden rounded-2xl">
         <div className="grid grid-cols-[1fr_140px_140px_120px_140px_100px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
-          <div>Creator</div><div>Code</div><div>Total</div><div>Ticket</div><div>Claimed</div><div>Status</div>
+          <div>Creator</div>
+          <div>Code</div>
+          <div>Total</div>
+          <div>Ticket</div>
+          <div>Claimed</div>
+          <div>Status</div>
         </div>
         {isLoading && <div className="p-8 text-center text-sm text-muted-foreground">Loading…</div>}
         {(data ?? []).map((p: any) => (
-          <div key={p.id} className="grid grid-cols-[1fr_140px_140px_120px_140px_100px] items-center gap-2 border-b border-border/40 px-4 py-3 text-sm last:border-0">
+          <div
+            key={p.id}
+            className="grid grid-cols-[1fr_140px_140px_120px_140px_100px] items-center gap-2 border-b border-border/40 px-4 py-3 text-sm last:border-0"
+          >
             <div>
-              <div className="font-medium">{p.creator?.full_name || p.creator?.email || p.creator_id.slice(0, 8)}</div>
-              <div className="text-[11px] text-muted-foreground">{new Date(p.created_at).toLocaleString()}</div>
+              <div className="font-medium">
+                {p.creator?.full_name || p.creator?.email || p.creator_id.slice(0, 8)}
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                {new Date(p.created_at).toLocaleString()}
+              </div>
             </div>
             <div className="font-mono text-xs">{p.code}</div>
             <div>{fmt(p.total_amount)}</div>
             <div>{p.ticket_value} KES</div>
-            <div>{p.claimed_count} / {p.max_claims}</div>
-            <div><span className={`rounded-full px-2 py-0.5 text-[10px] uppercase ${p.status === "active" ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"}`}>{p.status}</span></div>
+            <div>
+              {p.claimed_count} / {p.max_claims}
+            </div>
+            <div>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] uppercase ${p.status === "active" ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"}`}
+              >
+                {p.status}
+              </span>
+            </div>
           </div>
         ))}
-        {!isLoading && (data ?? []).length === 0 && <div className="p-8 text-center text-sm text-muted-foreground">No red packets yet.</div>}
+        {!isLoading && (data ?? []).length === 0 && (
+          <div className="p-8 text-center text-sm text-muted-foreground">No red packets yet.</div>
+        )}
       </div>
     </AdminShell>
   );
