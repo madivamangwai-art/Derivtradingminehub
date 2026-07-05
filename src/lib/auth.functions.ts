@@ -98,6 +98,7 @@ export const createAccountWithoutConfirmation = createServerFn({ method: "POST" 
       .parse(data),
   )
   .handler(async ({ data }) => {
+    const { supabase } = await import("@/integrations/supabase/client");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     try {
@@ -113,24 +114,48 @@ export const createAccountWithoutConfirmation = createServerFn({ method: "POST" 
       });
 
       if (error) {
-        console.error("Account creation failed", error);
-        throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        const shouldFallbackToPublicSignup = /missing supabase|service role key|not configured|invalid api key|not found/i.test(message);
+
+        if (!shouldFallbackToPublicSignup) {
+          console.error("Account creation failed", error);
+          throw error;
+        }
+      } else if (created.user) {
+        await createInitialUserRecords(
+          supabaseAdmin,
+          created.user.id,
+          data.email,
+          data.fullName,
+          data.phone,
+          data.refCode,
+        );
+
+        return { ok: true, userId: created.user.id };
       }
 
-      if (!created.user) {
+      const { data: publicSignupData, error: publicSignupError } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+        options: {
+          data: {
+            full_name: data.fullName,
+            phone: data.phone,
+            referred_by_code: data.refCode?.trim().toUpperCase() || undefined,
+          },
+        },
+      });
+
+      if (publicSignupError) {
+        console.error("Public signup fallback failed", publicSignupError);
+        throw publicSignupError;
+      }
+
+      if (!publicSignupData.user) {
         throw new Error("Account creation failed.");
       }
 
-      await createInitialUserRecords(
-        supabaseAdmin,
-        created.user.id,
-        data.email,
-        data.fullName,
-        data.phone,
-        data.refCode,
-      );
-
-      return { ok: true, userId: created.user.id };
+      return { ok: true, userId: publicSignupData.user.id };
     } catch (error) {
       console.error("Account creation failed", error);
       throw new Error(getFriendlyAuthMessage(error));

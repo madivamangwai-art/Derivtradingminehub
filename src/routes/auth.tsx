@@ -92,6 +92,8 @@ function AuthPage() {
         });
 
         if (result?.ok) {
+          const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+          if (signInError) throw signInError;
           toast.success("Account created successfully.");
           navigate({ to: "/home" });
           return;
