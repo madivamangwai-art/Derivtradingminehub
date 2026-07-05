@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { buildWalletActivityItems } from "@/lib/payment-state";
 import { initiateWithdrawalPayout } from "@/lib/mpesa.functions";
+import { reconcilePendingWalletActivity } from "@/lib/payment-reconcile";
 
 // ============ Client-facing server functions ============
 
@@ -66,6 +67,11 @@ export const getWalletData = createServerFn({ method: "GET" })
     const { supabase, userId } = context;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     await expireStalePendingWithdrawals(supabaseAdmin);
+    try {
+      await reconcilePendingWalletActivity(supabaseAdmin, userId);
+    } catch (e) {
+      console.error("reconcilePendingWalletActivity err", e);
+    }
     const [wallet, deposits, withdrawals, txns] = await Promise.all([
       supabase.from("wallets").select("*").eq("user_id", userId).maybeSingle(),
       supabase.from("deposits").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(20),
