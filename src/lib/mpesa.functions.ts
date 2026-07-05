@@ -3,6 +3,7 @@ import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { readEnvValue } from "@/lib/env";
+import { isMpesaPendingStatus, isMpesaTerminalFailure } from "@/lib/mpesa-status";
 
 function mpesaBaseUrls() {
   const envValue = (readEnvValue('MPESA_ENV', 'DARAJA_ENV') ?? "sandbox").toLowerCase();
@@ -107,13 +108,17 @@ export const initiateStkPush = createServerFn({ method: "POST" })
       body: JSON.stringify(body),
     });
     const json = await res.json() as any;
-    if (!res.ok || json.errorCode) {
+    if (!res.ok) {
       await supabaseAdmin.from("deposits").update({ status: "failed", metadata: json }).eq("id", dep.id);
       const msg = json.errorMessage ?? "STK push failed";
       if (String(msg).toLowerCase().includes("invalid access token")) {
         throw new Error("M-Pesa rejected the token. Your MPESA_ENV likely doesn't match your MPESA_CONSUMER_KEY/SECRET (sandbox vs production). Update the secrets and retry.");
       }
       throw new Error(msg);
+    }
+    if (json.errorCode && isMpesaTerminalFailure(json.errorCode, json.errorCode, json.errorMessage)) {
+      await supabaseAdmin.from("deposits").update({ status: "failed", metadata: json }).eq("id", dep.id);
+      throw new Error(json.errorMessage ?? "STK push failed");
     }
 
     const checkoutId = json.CheckoutRequestID as string;
@@ -157,10 +162,9 @@ export const initiateStkPush = createServerFn({ method: "POST" })
           }
           return { ok: true, status: "success", deposit_id: dep.id };
         }
-        // Non-zero, non-"still processing" → failed
-        if (rc && rc !== "1032" && q?.errorCode !== "500.001.1001") {
+        if (isMpesaTerminalFailure(rc, q?.errorCode, q?.ResultDesc ?? q?.errorMessage)) {
           await supabaseAdmin.from("deposits").update({ status: "failed", metadata: q }).eq("id", dep.id);
-          return { ok: false, status: "failed", deposit_id: dep.id, message: q?.ResultDesc ?? "Payment not completed" };
+          return { ok: false, status: "failed", deposit_id: dep.id, message: q?.ResultDesc ?? q?.errorMessage ?? "Payment not completed" };
         }
       } catch {
         // keep polling

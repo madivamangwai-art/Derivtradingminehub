@@ -84,7 +84,7 @@ export const WITHDRAWAL_FEE_RATE = 0.05;
 export const requestWithdrawal = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { amount: number }) =>
-    z.object({ amount: z.number().min(100).max(1_000_000) }).parse(d))
+    z.object({ amount: z.number().min(1).max(1_000_000) }).parse(d))
   .handler(async ({ data, context }) => {
     const { userId } = context;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
