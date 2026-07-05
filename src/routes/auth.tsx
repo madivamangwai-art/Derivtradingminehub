@@ -1,12 +1,9 @@
 import { createFileRoute, Link, useNavigate, redirect } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { createAccountWithoutConfirmation, getFriendlyAuthMessage } from "@/lib/auth.functions";
-import { isReferralRequired } from "@/lib/elevation.functions";
+import { getFriendlyAuthMessage } from "@/lib/auth.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,12 +40,31 @@ function AuthPage() {
   const [phone, setPhone] = useState("");
   const [refCode, setRefCode] = useState(ref ?? "");
   const [loading, setLoading] = useState(false);
-  const refReqFn = useServerFn(isReferralRequired);
-  const createAccountFn = useServerFn(createAccountWithoutConfirmation);
-  const { data: refReqData } = useQuery({ queryKey: ["ref-required"], queryFn: () => refReqFn() });
-  const refRequired = refReqData?.required ?? false;
+  const [refRequired, setRefRequired] = useState(false);
 
   useEffect(() => { if (ref) setRefCode(ref); }, [ref]);
+
+  useEffect(() => {
+    let active = true;
+    const checkReferralRequirement = async () => {
+      try {
+        const { count, error } = await supabase.from("profiles").select("id", { count: "exact", head: true });
+        if (!active) return;
+        if (!error) {
+          setRefRequired((count ?? 0) > 0);
+          return;
+        }
+      } catch {
+        // Fall back to optional referral codes if the check cannot be performed.
+      }
+      if (active) setRefRequired(false);
+    };
+
+    void checkReferralRequirement();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,19 +80,34 @@ function AuthPage() {
           setLoading(false);
           return;
         }
-        await createAccountFn({
+
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
-          fullName,
-          phone,
-          refCode: refCode.trim(),
+          options: {
+            data: {
+              full_name: fullName.trim(),
+              phone: phone.trim(),
+              referred_by_code: refCode.trim().toUpperCase() || undefined,
+            },
+          },
         });
-        toast.success("Account created successfully.");
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+
         if (error) throw error;
-        toast.success("Welcome back!");
+
+        if (data.session) {
+          toast.success("Account created successfully.");
+          navigate({ to: "/home" });
+          return;
+        }
+
+        toast.success("Account created. Please check your inbox to confirm your email.");
+        return;
       }
+
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      toast.success("Welcome back!");
       navigate({ to: "/home" });
     } catch (err) {
       console.error("Authentication failed", err);
