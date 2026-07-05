@@ -53,7 +53,7 @@ function WalletPage() {
         amount: -amount,
         status: r?.status === "success" ? "success" : "processing",
         created_at: new Date().toISOString(),
-        meta: { pending: true, net },
+        meta: { pending: true },
       }, ...prev]);
       toast.success(r?.status === "processing" ? `Withdrawal submitted. Funds are being sent to your M-Pesa account now and should arrive within minutes.` : `Withdrawal request recorded`);
       setWdAmt("");

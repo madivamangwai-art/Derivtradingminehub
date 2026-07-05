@@ -158,7 +158,7 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
           }).eq("user_id", userId);
         }
         await supabaseAdmin.from("transactions").insert({
-          user_id: userId, kind: "withdrawal", amount: -Number(data.amount), description: `Withdrawal completed (sent ${net})`, ref_id: wd.id,
+          user_id: userId, kind: "withdrawal", amount: -Number(data.amount), description: `Withdrawal completed`, ref_id: wd.id,
         });
         return { ok: true, fee, net, status: "success", withdrawal_id: wd.id };
       }
