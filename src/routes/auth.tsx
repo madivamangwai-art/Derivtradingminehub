@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { createAccountWithoutConfirmation } from "@/lib/auth.functions";
 import { isReferralRequired } from "@/lib/elevation.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,7 @@ function AuthPage() {
   const [refCode, setRefCode] = useState(ref ?? "");
   const [loading, setLoading] = useState(false);
   const refReqFn = useServerFn(isReferralRequired);
+  const createAccountFn = useServerFn(createAccountWithoutConfirmation);
   const { data: refReqData } = useQuery({ queryKey: ["ref-required"], queryFn: () => refReqFn() });
   const refRequired = refReqData?.required ?? false;
 
@@ -51,14 +53,13 @@ function AuthPage() {
     setLoading(true);
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
-          email, password,
-          options: {
-            emailRedirectTo: window.location.origin,
-            data: { full_name: fullName, phone, referred_by_code: refCode.trim().toUpperCase() || undefined },
-          },
+        await createAccountFn({
+          email,
+          password,
+          fullName,
+          phone,
+          refCode: refCode.trim(),
         });
-        if (error) throw error;
         toast.success("Account created!");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
