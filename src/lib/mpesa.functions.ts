@@ -2,16 +2,17 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { readEnvValue } from "@/lib/env";
 
 function mpesaBaseUrl() {
-  return (process.env.MPESA_ENV ?? "sandbox") === "production"
+  return (readEnvValue('MPESA_ENV', 'DARAJA_ENV') ?? "sandbox") === "production"
     ? "https://api.safaricom.co.ke"
     : "https://sandbox.safaricom.co.ke";
 }
 
 async function getMpesaToken() {
-  const key = process.env.MPESA_CONSUMER_KEY;
-  const secret = process.env.MPESA_CONSUMER_SECRET;
+  const key = readEnvValue('MPESA_CONSUMER_KEY', 'DARAJA_CONSUMER_KEY');
+  const secret = readEnvValue('MPESA_CONSUMER_SECRET', 'DARAJA_CONSUMER_SECRET');
   if (!key || !secret) throw new Error("M-Pesa credentials not configured.");
   const auth = Buffer.from(`${key}:${secret}`).toString("base64");
   const res = await fetch(`${mpesaBaseUrl()}/oauth/v1/generate?grant_type=client_credentials`, {
@@ -45,8 +46,8 @@ export const initiateStkPush = createServerFn({ method: "POST" })
     z.object({ amount: z.number().int().min(10).max(1_000_000) }).parse(d))
   .handler(async ({ data, context }) => {
     const { userId, supabase } = context;
-    const shortcode = process.env.MPESA_SHORTCODE;
-    const passkey = process.env.MPESA_PASSKEY;
+    const shortcode = readEnvValue('MPESA_SHORTCODE', 'DARAJA_STK_SHORTCODE');
+    const passkey = readEnvValue('MPESA_PASSKEY', 'DARAJA_STK_PASSKEY');
     if (!shortcode || !passkey) throw new Error("M-Pesa shortcode/passkey not configured");
 
     const { data: prof } = await supabase.from("profiles").select("phone").eq("id", userId).maybeSingle();
@@ -57,7 +58,7 @@ export const initiateStkPush = createServerFn({ method: "POST" })
     const phone = normalizePhone(prof.phone);
 
     // Derive callback URL from the incoming request so remixes work
-    let callbackUrl = process.env.MPESA_CALLBACK_URL;
+    let callbackUrl = readEnvValue('MPESA_CALLBACK_URL', 'DARAJA_CALLBACK_URL');
     if (!callbackUrl) {
       try {
         const req = getRequest();
