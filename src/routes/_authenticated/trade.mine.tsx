@@ -57,12 +57,18 @@ function MinePage() {
                 <span className="flex items-center gap-1 text-muted-foreground"><Gift className="h-3 w-3" /> Referral bonus</span>
                 <span className="font-semibold text-primary">{fmt(p.referral_bonus)}</span>
               </div>
+              <div className="mt-2 flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-xs">
+                <span className="text-muted-foreground">Purchase limit</span>
+                <span className={`font-semibold ${p.purchases_remaining > 0 ? "text-success" : "text-destructive"}`}>
+                  {p.purchased_count}/{p.purchase_limit}
+                </span>
+              </div>
               <Button
                 onClick={() => buy.mutate(p.id)}
-                disabled={buy.isPending}
+                disabled={buy.isPending || p.purchases_remaining <= 0}
                 className="mt-4 w-full gradient-gold"
               >
-                Buy for {fmt(p.price)}
+                {p.purchases_remaining > 0 ? `Buy for ${fmt(p.price)}` : "Limit reached"}
               </Button>
             </div>
           </div>

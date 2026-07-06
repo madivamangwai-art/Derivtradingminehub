@@ -7,6 +7,26 @@ import { reconcilePendingWalletActivity } from "@/lib/payment-reconcile";
 
 // ============ Client-facing server functions ============
 
+const PURCHASE_LIMIT_BY_TIER: Record<string, number> = {
+  bronze: 1,
+  silver: 2,
+  gold: 3,
+  diamond: 5,
+  platinum: 10,
+};
+
+export function getPackagePurchaseLimit(pkg: any) {
+  const tier = String(pkg?.tier ?? "").toLowerCase();
+  if (PURCHASE_LIMIT_BY_TIER[tier]) return PURCHASE_LIMIT_BY_TIER[tier];
+
+  const price = Number(pkg?.price ?? 0);
+  if (price >= 50000) return 10;
+  if (price >= 20000) return 5;
+  if (price >= 10000) return 3;
+  if (price >= 5000) return 2;
+  return 1;
+}
+
 // Claim schedule: package payouts unlock at 01:00 Africa/Nairobi (EAT, UTC+3) each day.
 // A boundary at 01:00 EAT of EAT-day D is UTC timestamp D*86400e3 - 3600e3.
 const EAT_OFFSET_MS = 3 * 3600 * 1000;
@@ -57,8 +77,27 @@ export const getDashboard = createServerFn({ method: "GET" })
 export const listPackages = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { data } = await context.supabase.from("packages").select("*").eq("active", true).order("sort_order");
-    return data ?? [];
+    const { supabase, userId } = context;
+    const [{ data }, { data: purchases }] = await Promise.all([
+      supabase.from("packages").select("*").eq("active", true).order("sort_order"),
+      supabase.from("user_packages").select("package_id").eq("user_id", userId),
+    ]);
+
+    const purchaseCounts = (purchases ?? []).reduce<Record<string, number>>((acc, row: any) => {
+      acc[row.package_id] = (acc[row.package_id] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    return (data ?? []).map((pkg: any) => {
+      const limit = getPackagePurchaseLimit(pkg);
+      const purchasedCount = purchaseCounts[pkg.id] ?? 0;
+      return {
+        ...pkg,
+        purchase_limit: limit,
+        purchased_count: purchasedCount,
+        purchases_remaining: Math.max(0, limit - purchasedCount),
+      };
+    });
   });
 
 export const getWalletData = createServerFn({ method: "GET" })
@@ -179,6 +218,18 @@ export const purchasePackage = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: pkg } = await supabaseAdmin.from("packages").select("*").eq("id", data.package_id).eq("active", true).maybeSingle();
     if (!pkg) throw new Error("Package unavailable");
+
+    const purchaseLimit = getPackagePurchaseLimit(pkg);
+    const { count, error: countErr } = await supabaseAdmin
+      .from("user_packages")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("package_id", pkg.id);
+    if (countErr) throw countErr;
+    if ((count ?? 0) >= purchaseLimit) {
+      throw new Error(`You can buy ${pkg.name} only ${purchaseLimit} time${purchaseLimit === 1 ? "" : "s"}.`);
+    }
+
     const { data: wallet } = await supabaseAdmin.from("wallets").select("*").eq("user_id", userId).maybeSingle();
     if (!wallet || Number(wallet.balance) < Number(pkg.price)) throw new Error("Insufficient wallet balance. Deposit first.");
 
