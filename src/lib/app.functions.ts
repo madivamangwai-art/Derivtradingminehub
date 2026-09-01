@@ -64,7 +64,11 @@ async function ensureAppStorageBuckets(supabaseAdmin: any) {
 }
 
 function storageExt(fileName: string, mimeType: string) {
-  const fromName = fileName.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const fromName = fileName
+    .split(".")
+    .pop()
+    ?.toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
   if (fromName) return fromName;
   if (mimeType === "image/png") return "png";
   if (mimeType === "image/webp") return "webp";
@@ -190,7 +194,10 @@ async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
       .maybeSingle();
     if (!wallet) continue;
 
-    const profitOnly = trade.trade_type === "daily" ? money(amount * rate) : Math.max(0, credit - (closeReached ? amount : 0));
+    const profitOnly =
+      trade.trade_type === "daily"
+        ? money(amount * rate)
+        : Math.max(0, credit - (closeReached ? amount : 0));
     await supabaseAdmin
       .from("wallets")
       .update({
@@ -594,7 +601,8 @@ export const getMarketData = createServerFn({ method: "GET" }).handler(async () 
     const rows = csv.trim().split(/\r?\n/).slice(1);
     markets = rows.map((row, index) => {
       const [symbol, date, time, open, high, low, close] = row.split(",");
-      const meta = symbols.find((s) => s.symbol.toLowerCase() === symbol.toLowerCase()) ?? symbols[index];
+      const meta =
+        symbols.find((s) => s.symbol.toLowerCase() === symbol.toLowerCase()) ?? symbols[index];
       const openValue = Number(open);
       const price = Number(close);
       return {
@@ -632,7 +640,8 @@ export const getMarketData = createServerFn({ method: "GET" }).handler(async () 
         .map((item) => ({
           title: readXmlTag(item, "title"),
           link: readXmlTag(item, "link") || readXmlTag(item, "guid"),
-          pubDate: readXmlTag(item, "pubDate") || readXmlTag(item, "dc:date") || new Date().toISOString(),
+          pubDate:
+            readXmlTag(item, "pubDate") || readXmlTag(item, "dc:date") || new Date().toISOString(),
           source: new URL(url).hostname.replace(/^www\./, ""),
         }))
         .filter((item) => item.title && item.link);
@@ -663,15 +672,17 @@ export const applyCopyTrade = createServerFn({ method: "POST" })
       amount: number;
       trade_type: CopyTradeType;
       source?: "signal" | "analyst";
+      analyst_id?: string;
     }) =>
-    z
-      .object({
-        code: z.string().max(32).optional().default(""),
-        amount: z.number().min(1).max(1_000_000),
-        trade_type: z.enum(["daily", "locked7", "locked30"]),
-        source: z.enum(["signal", "analyst"]).optional().default("signal"),
-      })
-      .parse(d),
+      z
+        .object({
+          code: z.string().max(32).optional().default(""),
+          amount: z.number().min(1).max(1_000_000),
+          trade_type: z.enum(["daily", "locked7", "locked30"]),
+          source: z.enum(["signal", "analyst"]).optional().default("signal"),
+          analyst_id: z.string().uuid().optional(),
+        })
+        .parse(d),
   )
   .handler(async ({ data, context }) => {
     const { userId } = context;
@@ -692,6 +703,9 @@ export const applyCopyTrade = createServerFn({ method: "POST" })
     if (source === "signal" && code.length < 3) {
       throw new Error("Enter a signal code before applying.");
     }
+    if (source === "analyst" && !data.analyst_id) {
+      throw new Error("Choose a partner portfolio before applying.");
+    }
     const { data: wallet } = await supabaseAdmin
       .from("wallets")
       .select("*")
@@ -711,6 +725,42 @@ export const applyCopyTrade = createServerFn({ method: "POST" })
             .gt("expires_at", new Date().toISOString())
             .maybeSingle()
         : { data: null };
+
+    if (signal && Number(data.amount) < Number(signal.min_copy_amount ?? 1)) {
+      const minimum = money(Number(signal.min_copy_amount ?? 1));
+      throw new Error(
+        `You cannot open this copy trade because this signal has a minimum limit of KES ${minimum.toLocaleString()}. Enter another code or quit trading.`,
+      );
+    }
+
+    const { data: analyst } =
+      source === "analyst"
+        ? await supabaseAdmin
+            .from("copy_trade_analysts")
+            .select("id,name,min_copy_amount,max_copy_amount,active")
+            .eq("id", data.analyst_id)
+            .eq("active", true)
+            .maybeSingle()
+        : { data: null };
+
+    if (source === "analyst" && !analyst) {
+      throw new Error("This partner portfolio is unavailable.");
+    }
+    if (analyst && Number(data.amount) < Number(analyst.min_copy_amount ?? 1)) {
+      const minimum = money(Number(analyst.min_copy_amount ?? 1));
+      throw new Error(
+        `You cannot open this copy trade because ${analyst.name} has a minimum limit of KES ${minimum.toLocaleString()}. Choose another portfolio or quit trading.`,
+      );
+    }
+    if (
+      analyst?.max_copy_amount != null &&
+      Number(analyst.max_copy_amount) > 0 &&
+      Number(data.amount) > Number(analyst.max_copy_amount)
+    ) {
+      throw new Error(
+        `This partner portfolio has a maximum limit of KES ${money(Number(analyst.max_copy_amount)).toLocaleString()}.`,
+      );
+    }
 
     await supabaseAdmin
       .from("wallets")
@@ -1074,11 +1124,11 @@ export const getMyTeam = createServerFn({ method: "GET" })
     let tradeRows: any[] = [];
     if (directIds.length) {
       const [{ data }, { data: trades }] = await Promise.all([
+        supabase.from("profiles").select("id, full_name").in("referred_by", directIds),
         supabase
-        .from("profiles")
-        .select("id, full_name")
-          .in("referred_by", directIds),
-        supabase.from("copy_trades").select("id,user_id,amount,total_profit_paid,status").in("user_id", directIds),
+          .from("copy_trades")
+          .select("id,user_id,amount,total_profit_paid,status")
+          .in("user_id", directIds),
       ]);
       indirect = data ?? [];
       tradeRows = trades ?? [];
@@ -1088,17 +1138,16 @@ export const getMyTeam = createServerFn({ method: "GET" })
       acc[row.referred_user_id] = (acc[row.referred_user_id] ?? 0) + Number(row.amount ?? 0);
       return acc;
     }, {});
-    const tradesByUser = tradeRows.reduce<Record<string, { count: number; amount: number; profit: number }>>(
-      (acc, row: any) => {
-        const item = acc[row.user_id] ?? { count: 0, amount: 0, profit: 0 };
-        item.count += 1;
-        item.amount += Number(row.amount ?? 0);
-        item.profit += Number(row.total_profit_paid ?? 0);
-        acc[row.user_id] = item;
-        return acc;
-      },
-      {},
-    );
+    const tradesByUser = tradeRows.reduce<
+      Record<string, { count: number; amount: number; profit: number }>
+    >((acc, row: any) => {
+      const item = acc[row.user_id] ?? { count: 0, amount: 0, profit: 0 };
+      item.count += 1;
+      item.amount += Number(row.amount ?? 0);
+      item.profit += Number(row.total_profit_paid ?? 0);
+      acc[row.user_id] = item;
+      return acc;
+    }, {});
     return {
       referralCode: profile.data?.referral_code ?? "",
       directReferrals: (direct.data ?? []).map((ref: any) => ({

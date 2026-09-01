@@ -40,7 +40,11 @@ async function ensureAnalystAvatarBucket(admin: any) {
 }
 
 function analystAvatarExt(fileName: string, mimeType: string) {
-  const fromName = fileName.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const fromName = fileName
+    .split(".")
+    .pop()
+    ?.toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
   if (fromName) return fromName;
   if (mimeType === "image/png") return "png";
   if (mimeType === "image/webp") return "webp";
@@ -56,10 +60,30 @@ function normalizeRate(value: number) {
   return value > 1 ? value / 100 : value;
 }
 
+function money(amount: number) {
+  return Math.round(Number(amount) * 100) / 100;
+}
+
 function getSignalDurationMs(type: CopyTradeType) {
   if (type === "daily") return 30 * 60 * 1000;
   if (type === "locked7") return 7 * 24 * 3600 * 1000;
   return 30 * 24 * 3600 * 1000;
+}
+
+function getCopyTradeRemainingDays(trade: any, nowMs = Date.now()) {
+  if (trade.trade_type === "daily") return 1;
+  return Math.max(1, Math.ceil((new Date(trade.closes_at).getTime() - nowMs) / 86400000));
+}
+
+function getCopyTradeProfitRemaining(trade: any, nowMs = Date.now()) {
+  const principal = Number(trade.amount ?? 0);
+  const rate = Number(trade.profit_rate ?? COPY_TRADE_PROFIT_RATE);
+  return principal * rate * getCopyTradeRemainingDays(trade, nowMs);
+}
+
+function getCopyTradeDailyAccrual(trade: any) {
+  if (trade.trade_type === "daily") return 0;
+  return Number(trade.amount ?? 0) * Number(trade.profit_rate ?? COPY_TRADE_PROFIT_RATE);
 }
 
 async function requireAdmin(userId: string) {
@@ -400,11 +424,21 @@ export const adminUpsertCopyTradeAnalyst = createServerFn({ method: "POST" })
         seven_day_roi: z.number().min(-1).max(10),
         follow_period_days: z.number().int().positive().nullable().optional(),
         commission_rate: z.number().min(0).max(100),
-        min_copy_amount: z.number().min(0),
+        min_copy_amount: z.number().min(1).max(1_000_000),
         max_copy_amount: z.number().min(0).nullable().optional(),
         active: z.boolean(),
         sort_order: z.number().int(),
       })
+      .refine(
+        (value) =>
+          value.max_copy_amount == null ||
+          value.max_copy_amount === 0 ||
+          value.max_copy_amount >= value.min_copy_amount,
+        {
+          message: "Maximum amount must be greater than the minimum amount.",
+          path: ["max_copy_amount"],
+        },
+      )
       .parse(d),
   )
   .handler(async ({ data, context }) => {
@@ -413,7 +447,8 @@ export const adminUpsertCopyTradeAnalyst = createServerFn({ method: "POST" })
       ...data,
       avatar_url: data.avatar_url || null,
       commission_rate: normalizeRate(data.commission_rate),
-      max_copy_amount: data.max_copy_amount || null,
+      min_copy_amount: money(data.min_copy_amount),
+      max_copy_amount: data.max_copy_amount ? money(data.max_copy_amount) : null,
       updated_at: new Date().toISOString(),
     };
     if (data.id) {
@@ -531,8 +566,13 @@ export const adminReviewKycVerification = createServerFn({ method: "POST" })
 
 export const adminGenerateCopyTradeSignal = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { trade_type: CopyTradeType }) =>
-    z.object({ trade_type: z.enum(["daily", "locked7", "locked30"]) }).parse(d),
+  .inputValidator((d: { trade_type: CopyTradeType; min_copy_amount?: number }) =>
+    z
+      .object({
+        trade_type: z.enum(["daily", "locked7", "locked30"]),
+        min_copy_amount: z.number().min(1).max(1_000_000).optional().default(1),
+      })
+      .parse(d),
   )
   .handler(async ({ data, context }) => {
     const admin = await requireAdmin(context.userId);
@@ -566,6 +606,7 @@ export const adminGenerateCopyTradeSignal = createServerFn({ method: "POST" })
         code: generateSignalCode(data.trade_type),
         trade_type: data.trade_type,
         profit_rate: COPY_TRADE_PROFIT_RATE,
+        min_copy_amount: data.min_copy_amount,
         valid_from: now.toISOString(),
         expires_at: expiresAt.toISOString(),
         created_by: context.userId,
@@ -838,25 +879,46 @@ export const adminGetAccounts = createServerFn({ method: "GET" })
     // House metrics
     // House balance = deposits + unclaimed red packets + fees - withdrawals paid to users
     const houseBalance = totalDeposited + redPacketUnclaimed + feesCollectedPaid - totalWithdrawn;
-    // Runway if all clients requested full withdrawal at net-daily-outflow pace
-    const runwayDays = netDailyOutflow > 0 ? houseBalance / netDailyOutflow : null;
     // Coverage ratio: house cash vs client liability
     const coverageRatio = clientLiability > 0 ? houseBalance / clientLiability : null;
 
-    // Compute expected outflow from active copy trades.
+    // Compute expected outflow from active winning copy trades.
     const nowIso = new Date().toISOString();
     const { data: openTrades } = await admin
       .from("copy_trades")
-      .select("amount,profit_rate,trade_type,closes_at,last_profit_at")
+      .select("amount,profit_rate,trade_type,closes_at,last_profit_at,signal_id")
       .eq("status", "open")
       .gt("closes_at", nowIso);
-    const expectedDaily = (openTrades ?? []).reduce(
-      (s: number, trade: any) =>
-        s + Number(trade.amount ?? 0) * Number(trade.profit_rate ?? COPY_TRADE_PROFIT_RATE),
+    const activeCopyTrades = openTrades ?? [];
+    const winningCopyTrades = activeCopyTrades.filter((trade: any) => !!trade.signal_id);
+    const lossSideCopyTrades = activeCopyTrades.filter((trade: any) => !trade.signal_id);
+    const openCopyCapital = activeCopyTrades.reduce(
+      (sum: number, trade: any) => sum + Number(trade.amount ?? 0),
       0,
     );
-    const expectedWeekly = expectedDaily * 7;
-    const expectedMonthly = expectedDaily * 30;
+    const validSignalCapital = winningCopyTrades.reduce(
+      (sum: number, trade: any) => sum + Number(trade.amount ?? 0),
+      0,
+    );
+    const lossSideCapital = lossSideCopyTrades.reduce(
+      (sum: number, trade: any) => sum + Number(trade.amount ?? 0),
+      0,
+    );
+    const remainingProfitLiability = winningCopyTrades.reduce(
+      (sum: number, trade: any) => sum + getCopyTradeProfitRemaining(trade),
+      0,
+    );
+    const recurringDailyAccrual = winningCopyTrades.reduce(
+      (sum: number, trade: any) => sum + getCopyTradeDailyAccrual(trade),
+      0,
+    );
+    const signalCycleProfitLiability = winningCopyTrades
+      .filter((trade: any) => trade.trade_type === "daily")
+      .reduce((sum: number, trade: any) => sum + getCopyTradeProfitRemaining(trade), 0);
+    const lockedProfitLiability = remainingProfitLiability - signalCycleProfitLiability;
+    const payoutLiability = validSignalCapital + remainingProfitLiability;
+    const exposureCoverageRatio = payoutLiability > 0 ? houseBalance / payoutLiability : null;
+    const runwayDays = recurringDailyAccrual > 0 ? houseBalance / recurringDailyAccrual : null;
 
     return {
       totals: {
@@ -883,7 +945,24 @@ export const adminGetAccounts = createServerFn({ method: "GET" })
         avgDailyWithdrawal,
         netDailyOutflow,
       },
-      expectedOutflow: { daily: expectedDaily, weekly: expectedWeekly, monthly: expectedMonthly },
+      expectedOutflow: {
+        daily: recurringDailyAccrual,
+        weekly: recurringDailyAccrual * 7,
+        monthly: recurringDailyAccrual * 30,
+      },
+      copyTrading: {
+        openTrades: activeCopyTrades.length,
+        winningTrades: winningCopyTrades.length,
+        lossSideTrades: lossSideCopyTrades.length,
+        openCopyCapital,
+        validSignalCapital,
+        lossSideCapital,
+        expectedProfitRemaining: remainingProfitLiability,
+        signalCycleProfitLiability,
+        lockedProfitLiability,
+        payoutLiability,
+        exposureCoverageRatio,
+      },
     };
   });
 
@@ -929,8 +1008,18 @@ export const adminGetTreasury = createServerFn({ method: "GET" })
     const activeRows = (openTrades.data ?? []).filter(
       (trade: any) => new Date(trade.closes_at) > now,
     );
+    const winningRows = activeRows.filter((trade: any) => !!trade.signal_id);
+    const lossSideRows = activeRows.filter((trade: any) => !trade.signal_id);
     const uniqueClients = new Set(activeRows.map((trade: any) => trade.user_id)).size;
     const totalActivePrincipal = activeRows.reduce(
+      (sum: number, trade: any) => sum + Number(trade.amount ?? 0),
+      0,
+    );
+    const totalWinningPrincipal = winningRows.reduce(
+      (sum: number, trade: any) => sum + Number(trade.amount ?? 0),
+      0,
+    );
+    const totalLossSidePrincipal = lossSideRows.reduce(
       (sum: number, trade: any) => sum + Number(trade.amount ?? 0),
       0,
     );
@@ -938,10 +1027,12 @@ export const adminGetTreasury = createServerFn({ method: "GET" })
     const matrixMap = new Map<string, any>();
     const maturityWallMap = new Map<string, number>();
     let totalDailyLiability = 0;
+    let totalProfitLiability = 0;
     let totalRiskExposure = 0;
 
     for (const trade of activeRows) {
       const mode = String(trade.trade_type ?? "daily");
+      const isWinningTrade = !!trade.signal_id;
       const code =
         mode === "daily"
           ? "30-minute copy"
@@ -949,24 +1040,24 @@ export const adminGetTreasury = createServerFn({ method: "GET" })
             ? "7-day locked copy"
             : "30-day locked copy";
       const principal = Number(trade.amount ?? 0);
-      const rate = Number(trade.profit_rate ?? 0.016);
       const expiresAt = new Date(trade.closes_at);
-      const expectedProfit = principal * rate;
-      const dailyPayout = mode === "daily" ? expectedProfit : expectedProfit;
-      const remainingDays = Math.max(
-        1,
-        Math.ceil((expiresAt.getTime() - now.getTime()) / 86400000),
-      );
-      const maturityTotal = principal + expectedProfit * remainingDays;
-      const dailyRemainingDays = mode === "daily" ? 1 : remainingDays;
-      const riskExposure = principal + dailyPayout * dailyRemainingDays;
+      const remainingProfit = isWinningTrade
+        ? getCopyTradeProfitRemaining(trade, now.getTime())
+        : 0;
+      const dailyPayout = isWinningTrade ? getCopyTradeDailyAccrual(trade) : 0;
+      const maturityTotal = isWinningTrade ? principal + remainingProfit : 0;
+      const riskExposure = maturityTotal;
       const maturingNext7 = expiresAt <= next7 ? maturityTotal : 0;
 
       if (!matrixMap.has(code)) {
         matrixMap.set(code, {
           tradeType: code,
           activeSubscriptions: 0,
+          validSignals: 0,
+          lossSideTrades: 0,
+          lossSideCapital: 0,
           dailyPayoutLiability: 0,
+          remainingProfitLiability: 0,
           maturingLockedCapitalNext7: 0,
           totalRiskExposure: 0,
           mode,
@@ -974,10 +1065,17 @@ export const adminGetTreasury = createServerFn({ method: "GET" })
       }
       const row = matrixMap.get(code);
       row.activeSubscriptions += 1;
+      if (isWinningTrade) row.validSignals += 1;
+      else {
+        row.lossSideTrades += 1;
+        row.lossSideCapital += principal;
+      }
       row.dailyPayoutLiability += dailyPayout;
+      row.remainingProfitLiability += remainingProfit;
       row.maturingLockedCapitalNext7 += maturingNext7;
       row.totalRiskExposure += riskExposure;
       totalDailyLiability += dailyPayout;
+      totalProfitLiability += remainingProfit;
       totalRiskExposure += riskExposure;
 
       if (expiresAt <= next30) {
@@ -1010,8 +1108,13 @@ export const adminGetTreasury = createServerFn({ method: "GET" })
         currentTreasuryBalance: treasuryBalance,
         estimatedRunwayDays,
         totalActivePrincipal,
+        totalWinningPrincipal,
+        totalLossSidePrincipal,
         totalActiveClients: uniqueClients,
+        openWinningTrades: winningRows.length,
+        openLossSideTrades: lossSideRows.length,
         totalDailyLiability,
+        totalProfitLiability,
         totalRiskExposure,
       },
       matrix: [...matrixMap.values()].sort((a, b) => a.tradeType.localeCompare(b.tradeType)),

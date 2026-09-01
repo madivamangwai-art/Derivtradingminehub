@@ -70,6 +70,11 @@ function CopyTradingAdminPage() {
   const { data } = useQuery({ queryKey: ["admin-copy-trading"], queryFn: () => copyTradingFn() });
   const [analystForm, setAnalystForm] = useState<any>(emptyAnalyst);
   const [analystAvatarFile, setAnalystAvatarFile] = useState<File | null>(null);
+  const [signalMinimums, setSignalMinimums] = useState<Record<CopyTradeType, number>>({
+    daily: 1,
+    locked7: 1,
+    locked30: 1,
+  });
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["admin-copy-trading"] });
 
@@ -117,7 +122,7 @@ function CopyTradingAdminPage() {
 
   const generateSignal = useMutation({
     mutationFn: (trade_type: "daily" | "locked7" | "locked30") =>
-      generateSignalFn({ data: { trade_type } }),
+      generateSignalFn({ data: { trade_type, min_copy_amount: signalMinimums[trade_type] } }),
     onSuccess: (signal: any) => {
       toast.success(`Signal generated: ${signal.code}`);
       navigator.clipboard?.writeText(signal.code);
@@ -223,16 +228,38 @@ function CopyTradingAdminPage() {
             <h2 className="text-sm font-semibold">Generate signal codes</h2>
           </div>
           <div className="grid gap-2">
-            <SignalButton label="Daily 30-minute" hint="Up to 4 codes per day" onClick={() => generateSignal.mutate("daily")} disabled={generateSignal.isPending} />
-            <SignalButton label="7-day locked" hint="One active code at a time" onClick={() => generateSignal.mutate("locked7")} disabled={generateSignal.isPending} />
-            <SignalButton label="30-day locked" hint="One active code at a time" onClick={() => generateSignal.mutate("locked30")} disabled={generateSignal.isPending} />
+            <SignalButton
+              label="Daily 30-minute"
+              hint="Up to 4 codes per day"
+              minAmount={signalMinimums.daily}
+              onMinChange={(value) => setSignalMinimums({ ...signalMinimums, daily: value })}
+              onClick={() => generateSignal.mutate("daily")}
+              disabled={generateSignal.isPending}
+            />
+            <SignalButton
+              label="7-day locked"
+              hint="One active code at a time"
+              minAmount={signalMinimums.locked7}
+              onMinChange={(value) => setSignalMinimums({ ...signalMinimums, locked7: value })}
+              onClick={() => generateSignal.mutate("locked7")}
+              disabled={generateSignal.isPending}
+            />
+            <SignalButton
+              label="30-day locked"
+              hint="One active code at a time"
+              minAmount={signalMinimums.locked30}
+              onMinChange={(value) => setSignalMinimums({ ...signalMinimums, locked30: value })}
+              onClick={() => generateSignal.mutate("locked30")}
+              disabled={generateSignal.isPending}
+            />
           </div>
         </section>
 
         <section className="glass-card overflow-hidden rounded-2xl">
-          <div className="grid grid-cols-[112px_86px_1fr_96px_88px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
+          <div className="grid grid-cols-[112px_86px_112px_1fr_96px_88px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
             <div>Code</div>
             <div>Type</div>
+            <div>Minimum</div>
             <div>Expires</div>
             <div>Status</div>
             <div>Copy</div>
@@ -240,9 +267,10 @@ function CopyTradingAdminPage() {
           {(data?.signals ?? []).slice(0, 12).map((signal: any) => {
             const active = signal.active && new Date(signal.expires_at).getTime() > Date.now();
             return (
-              <div key={signal.id} className="grid grid-cols-[112px_86px_1fr_96px_88px] items-center gap-2 border-b border-border/40 px-4 py-3 text-sm">
+              <div key={signal.id} className="grid grid-cols-[112px_86px_112px_1fr_96px_88px] items-center gap-2 border-b border-border/40 px-4 py-3 text-sm">
                 <div className="font-mono font-semibold">{signal.code}</div>
                 <div className="text-xs capitalize text-primary">{String(signal.trade_type).replace("locked", "locked ")}</div>
+                <div className="text-xs font-semibold">KES {Number(signal.min_copy_amount ?? 1).toLocaleString()}</div>
                 <div className="text-xs text-muted-foreground">{new Date(signal.expires_at).toLocaleString()}</div>
                 <StatusPill status={active ? "active" : "expired"} />
                 <button className="inline-flex w-fit items-center gap-1 rounded-md bg-primary/15 px-2 py-1 text-xs text-primary" onClick={() => {
@@ -380,15 +408,42 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SignalButton({ label, hint, onClick, disabled }: { label: string; hint: string; onClick: () => void; disabled?: boolean }) {
+function SignalButton({
+  label,
+  hint,
+  minAmount,
+  onMinChange,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  hint: string;
+  minAmount: number;
+  onMinChange: (value: number) => void;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} className="flex items-center justify-between rounded-xl border border-border bg-card px-3 py-3 text-left transition hover:border-primary/50 disabled:opacity-60">
-      <span>
-        <span className="block text-sm font-semibold">{label}</span>
-        <span className="text-xs text-muted-foreground">{hint}</span>
-      </span>
-      <Plus className="h-4 w-4 text-primary" />
-    </button>
+    <div className="rounded-xl border border-border bg-card p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold">{label}</div>
+          <div className="text-xs text-muted-foreground">{hint}</div>
+        </div>
+        <Button type="button" size="sm" onClick={onClick} disabled={disabled || minAmount < 1}>
+          <Plus className="mr-1 h-4 w-4" /> Code
+        </Button>
+      </div>
+      <div className="mt-3">
+        <Label>Minimum amount</Label>
+        <Input
+          type="number"
+          min={1}
+          value={minAmount}
+          onChange={(e) => onMinChange(Number(e.target.value))}
+        />
+      </div>
+    </div>
   );
 }
 

@@ -68,14 +68,19 @@ function TreasuryPage() {
           />
           <Summary
             icon={Gauge}
-            label="Estimated Runway"
+            label="Locked Profit Runway"
             value={runwayText}
             tone={critical ? "bad" : "good"}
           />
           <Summary
             icon={Lock}
-            label="Open Copy Capital"
-            value={fmt(data.summary.totalActivePrincipal)}
+            label="Valid-Signal Liability"
+            value={fmt(data.summary.totalRiskExposure)}
+            tone={
+              data.summary.totalRiskExposure > data.summary.currentTreasuryBalance
+                ? "bad"
+                : "default"
+            }
           />
           <Summary
             icon={Users}
@@ -89,17 +94,20 @@ function TreasuryPage() {
             <div className="border-b border-border/60 px-4 py-3">
               <div className="text-sm font-semibold">Copy Trade Liability Matrix</div>
               <div className="text-[11px] text-muted-foreground">
-                Open copy-trade capital, expected profit, and near-term closings
+                Valid-signal payout exposure, house-side capital, and near-term closings
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-sm">
+              <table className="w-full min-w-[900px] text-sm">
                 <thead className="bg-muted/35 text-left text-[11px] uppercase text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3">Copy Trade Type</th>
                     <th className="px-4 py-3">Open Trades</th>
-                    <th className="px-4 py-3">Expected Profit Liability</th>
-                    <th className="px-4 py-3">Closing Capital + Profit (Next 7 Days)</th>
+                    <th className="px-4 py-3">Valid Signals</th>
+                    <th className="px-4 py-3">Daily Locked Accrual</th>
+                    <th className="px-4 py-3">Remaining Profit</th>
+                    <th className="px-4 py-3">Closing Payout (Next 7 Days)</th>
+                    <th className="px-4 py-3">House-side Capital</th>
                     <th className="px-4 py-3">Total Risk Exposure</th>
                   </tr>
                 </thead>
@@ -113,14 +121,17 @@ function TreasuryPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">{row.activeSubscriptions}</td>
+                      <td className="px-4 py-3">{row.validSignals}</td>
                       <td className="px-4 py-3">{fmt(row.dailyPayoutLiability)}</td>
+                      <td className="px-4 py-3">{fmt(row.remainingProfitLiability)}</td>
                       <td className="px-4 py-3">{fmt(row.maturingLockedCapitalNext7)}</td>
+                      <td className="px-4 py-3 text-success">{fmt(row.lossSideCapital)}</td>
                       <td className="px-4 py-3 font-semibold">{fmt(row.totalRiskExposure)}</td>
                     </tr>
                   ))}
                   {data.matrix.length === 0 && (
                     <tr>
-                      <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
+                      <td className="px-4 py-8 text-center text-muted-foreground" colSpan={8}>
                         No open copy-trade liabilities.
                       </td>
                     </tr>
@@ -144,6 +155,10 @@ function TreasuryPage() {
                 <Mini label="Inflow" value={fmt(data.liquidity.todayDeposits)} />
                 <Mini label="Payouts" value={fmt(data.liquidity.todayPayouts)} />
                 <Mini label="Withdrawals" value={fmt(data.liquidity.todayWithdrawals)} />
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                <Mini label="Winning capital" value={fmt(data.summary.totalWinningPrincipal)} />
+                <Mini label="House-side capital" value={fmt(data.summary.totalLossSidePrincipal)} />
               </div>
             </div>
 

@@ -69,6 +69,11 @@ function Page() {
 
   const runway = data.house.runwayDays;
   const coverage = data.house.coverageRatio;
+  const exposureCoverage = data.copyTrading?.exposureCoverageRatio;
+  const exposureCoverageText =
+    exposureCoverage === null || exposureCoverage === undefined
+      ? "No exposure"
+      : `${(exposureCoverage * 100).toFixed(1)}%`;
   const houseTone: "good" | "warn" | "bad" =
     data.house.balance < 0 ? "bad" : coverage !== null && coverage < 1 ? "warn" : "good";
   const runwayText =
@@ -104,9 +109,9 @@ function Page() {
             />
             <Stat
               icon={Wallet}
-              label="Runway"
+              label="Locked profit runway"
               value={runwayText}
-              hint="At current 30-day net outflow pace"
+              hint="At current locked-copy daily accrual"
               tone={runway !== null && runway < 30 ? "warn" : "default"}
             />
           </div>
@@ -114,14 +119,47 @@ function Page() {
 
         <div>
           <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">
-            Expected outflow
+            Copy trading exposure
+          </h2>
+          <div className="grid gap-3 md:grid-cols-4">
+            <Stat
+              icon={ArrowUpFromLine}
+              label="Valid-signal closing payout"
+              value={fmt(data.copyTrading?.payoutLiability ?? 0)}
+              hint="Principal + remaining profit owed if valid-signal trades close"
+              tone="warn"
+            />
+            <Stat
+              icon={TrendingUp}
+              label="Remaining profit"
+              value={fmt(data.copyTrading?.expectedProfitRemaining ?? 0)}
+              hint={`${fmt(data.copyTrading?.signalCycleProfitLiability ?? 0)} signal + ${fmt(data.copyTrading?.lockedProfitLiability ?? 0)} locked`}
+            />
+            <Stat
+              icon={Wallet}
+              label="Open copy capital"
+              value={fmt(data.copyTrading?.openCopyCapital ?? 0)}
+              hint={`${data.copyTrading?.openTrades ?? 0} total open copy trades`}
+            />
+            <Stat
+              icon={Sparkles}
+              label="House-side capital"
+              value={fmt(data.copyTrading?.lossSideCapital ?? 0)}
+              hint={`${data.copyTrading?.lossSideTrades ?? 0} invalid/no-code trades expected to close as losses`}
+              tone="good"
+            />
+          </div>
+        </div>
+
+        <div>
+          <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">
+            Locked-copy accrual pace
           </h2>
           <div className="grid gap-3 md:grid-cols-3">
             <Stat
               icon={ArrowUpFromLine}
-              label="Open trade profit"
+              label="Daily accrual"
               value={fmt(data.expectedOutflow?.daily ?? 0)}
-              hint="Profit exposure from open copy trades"
             />
             <Stat
               icon={ArrowUpFromLine}
@@ -237,14 +275,23 @@ function Page() {
               now. Below 100% is a red flag.
             </li>
             <li>
-              <b>Runway</b> estimates how long the house can sustain net outflow at the current
-              30-day pace.
+              <b>Valid-signal payout</b> is the copy-trading amount the house must be ready to pay
+              if every active winning trade closed now.
             </li>
-            <li>Every withdrawal retains 20% for gas fees, transaction fees, and tax.</li>
+            <li>
+              <b>Exposure coverage</b> is currently {exposureCoverageText}; it compares house cash
+              with valid-signal closing payout exposure.
+            </li>
+            <li>
+              <b>Runway</b> estimates how long the house can sustain locked-copy daily accrual.
+            </li>
+            <li>
+              House-side capital is already deducted from client wallets and is not counted as
+              future payout liability.
+            </li>
           </ul>
         </div>
       </div>
     </AdminShell>
   );
 }
-

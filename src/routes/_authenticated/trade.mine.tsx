@@ -66,6 +66,7 @@ function CopyTradingPage() {
   const analysts = (data?.analysts?.length ? data.analysts : fallbackAnalysts).map(
     (analyst: any, index: number) => ({
       name: analyst.name,
+      id: analyst.id,
       role: analyst.title ?? analyst.role ?? "Portfolio Manager",
       oneDay: analyst.oneDay ?? `+${Number(analyst.one_day_return_rate ?? 0.02) * 100}%`,
       sevenDay: analyst.sevenDay ?? `+${Number(analyst.seven_day_roi ?? 0.14) * 100}%`,
@@ -97,10 +98,16 @@ function CopyTradingPage() {
   const [tradeType, setTradeType] = useState<CopyTradeType>("daily");
   const [code, setCode] = useState("");
   const [amount, setAmount] = useState("");
+  const [tradeWarning, setTradeWarning] = useState("");
   const selected = tradeTypes.find((item) => item.value === tradeType)!;
   const isSignalTrade = selectedAnalyst?.source === "signal";
+  const selectedMinAmount = Number(selectedAnalyst?.min_copy_amount ?? 1);
+  const selectedMaxAmount = Number(selectedAnalyst?.max_copy_amount ?? 0);
   const expectedProfit = Number(amount || 0) * Number(data?.profitRate ?? 0.016);
   const kycApproved = !!data?.kycApproved;
+  const amountBelowMinimum = Number(amount || 0) > 0 && Number(amount) < selectedMinAmount;
+  const amountAboveMaximum =
+    selectedMaxAmount > 0 && Number(amount || 0) > 0 && Number(amount) > selectedMaxAmount;
   const visibleAnalysts = analysts.filter((a: any) =>
     `${a.name} ${a.role}`.toLowerCase().includes(query.toLowerCase()),
   );
@@ -113,11 +120,13 @@ function CopyTradingPage() {
           amount: Number(amount),
           trade_type: tradeType,
           source: selectedAnalyst?.source ?? "signal",
+          analyst_id: selectedAnalyst?.source === "analyst" ? selectedAnalyst.id : undefined,
         },
       }),
     onSuccess: (result: any) => {
       if (result.ok) toast.success(result.message ?? "Copy trade opened");
       else toast.error(result.message ?? "Signal did not match. Trade lost.");
+      setTradeWarning("");
       setCode("");
       setAmount("");
       setSelectedAnalyst(null);
@@ -125,7 +134,11 @@ function CopyTradingPage() {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["wallet"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Copy trade failed"),
+    onError: (e: any) => {
+      const message = e.message ?? "Copy trade failed";
+      setTradeWarning(message);
+      toast.error(message);
+    },
   });
 
   if (selectedAnalyst) {
@@ -133,7 +146,10 @@ function CopyTradingPage() {
       <div className="space-y-4">
         <button
           type="button"
-          onClick={() => setSelectedAnalyst(null)}
+          onClick={() => {
+            setSelectedAnalyst(null);
+            setTradeWarning("");
+          }}
           className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground"
         >
           <ArrowLeft className="h-4 w-4" /> Back
@@ -153,7 +169,7 @@ function CopyTradingPage() {
           <div className="mt-5 grid grid-cols-2 gap-2">
             <Info label="Period" value={selected.term} />
             <Info label="Commission" value="0%" />
-            <Info label="Minimum" value="KES 1" />
+            <Info label="Minimum" value={fmt(selectedMinAmount)} />
             <Info label="Wallet" value={fmt(data?.wallet?.balance)} />
           </div>
         </section>
@@ -210,7 +226,7 @@ function CopyTradingPage() {
               <div className="flex gap-2">
                 <Input
                   type="number"
-                  min={1}
+                  min={selectedMinAmount}
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="Amount"
@@ -224,6 +240,22 @@ function CopyTradingPage() {
                 </Button>
               </div>
             </div>
+            {amountBelowMinimum && (
+              <div className="rounded-xl border border-warning/50 bg-warning/15 p-3 text-xs leading-5">
+                You cannot open this trade because it has a minimum limit of{" "}
+                {fmt(selectedMinAmount)}. Use another code or quit trading.
+              </div>
+            )}
+            {amountAboveMaximum && (
+              <div className="rounded-xl border border-warning/50 bg-warning/15 p-3 text-xs leading-5">
+                This partner portfolio has a maximum limit of {fmt(selectedMaxAmount)}.
+              </div>
+            )}
+            {tradeWarning && (
+              <div className="rounded-xl border border-warning/50 bg-warning/15 p-3 text-xs leading-5">
+                {tradeWarning}
+              </div>
+            )}
             <div className="rounded-xl bg-muted/40 p-3 text-xs">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">
@@ -246,7 +278,9 @@ function CopyTradingPage() {
                 apply.isPending ||
                 !kycApproved ||
                 (isSignalTrade && !code.trim()) ||
-                Number(amount) <= 0
+                Number(amount) <= 0 ||
+                amountBelowMinimum ||
+                amountAboveMaximum
               }
               className="h-12 w-full gradient-gold"
             >
@@ -294,7 +328,13 @@ function CopyTradingPage() {
             placeholder="Search analyst"
           />
         </div>
-        <Button onClick={() => setSelectedAnalyst(manualSignal)} className="h-12 rounded-full px-5">
+        <Button
+          onClick={() => {
+            setSelectedAnalyst(manualSignal);
+            setTradeWarning("");
+          }}
+          className="h-12 rounded-full px-5"
+        >
           Signal
         </Button>
       </div>
@@ -312,13 +352,21 @@ function CopyTradingPage() {
                     {analyst.bio}
                   </p>
                 </div>
-                <Button size="sm" onClick={() => setSelectedAnalyst(analyst)}>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setSelectedAnalyst(analyst);
+                    setTradeWarning("");
+                  }}
+                >
                   Copy
                 </Button>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <Rate label="1-day return" value={analyst.oneDay} />
                 <Rate label="7-day ROI" value={analyst.sevenDay} />
+                <Rate label="Minimum" value={fmt(analyst.min_copy_amount ?? 1)} />
+                <Rate label="Commission" value={`${Number(analyst.commission_rate ?? 0) * 100}%`} />
               </div>
             </article>
           ))}
@@ -332,7 +380,10 @@ function CopyTradingPage() {
             {analysts.map((analyst: any) => (
               <button
                 key={analyst.name}
-                onClick={() => setSelectedAnalyst(analyst)}
+                onClick={() => {
+                  setSelectedAnalyst(analyst);
+                  setTradeWarning("");
+                }}
                 className="flex w-full items-center gap-3 rounded-xl bg-card p-3 text-left"
               >
                 <AnalystAvatar analyst={analyst} />
@@ -342,7 +393,9 @@ function CopyTradingPage() {
                 </div>
                 <div className="text-right text-xs">
                   <div className="font-bold text-success">{analyst.sevenDay}</div>
-                  <div className="text-muted-foreground">7-day ROI</div>
+                  <div className="text-muted-foreground">
+                    Min {fmt(analyst.min_copy_amount ?? 1)}
+                  </div>
                 </div>
               </button>
             ))}
