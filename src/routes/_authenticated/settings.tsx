@@ -99,7 +99,7 @@ function SettingsPage() {
     mutationFn: async () => {
       if (!avatarFile) throw new Error("Choose a profile picture first.");
       const content = await fileToBase64(avatarFile);
-      await uploadAvatarFn({
+      return uploadAvatarFn({
         data: {
           file_name: avatarFile.name,
           mime_type: getUploadMimeType(avatarFile, imageMimeTypes),
@@ -107,7 +107,16 @@ function SettingsPage() {
         },
       });
     },
-    onSuccess: () => {
+    onSuccess: (uploaded) => {
+      if (uploaded.avatar_url) {
+        for (const key of ["profile", "profile-shell"]) {
+          qc.setQueryData([key], (current: any) =>
+            current?.profile
+              ? { ...current, profile: { ...current.profile, avatar_url: uploaded.avatar_url } }
+              : current,
+          );
+        }
+      }
       toast.success("Profile picture updated");
       setAvatarFile(null);
       refreshProfile();

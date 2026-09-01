@@ -1182,7 +1182,11 @@ export const uploadProfileAvatar = createServerFn({ method: "POST" })
       contentType: data.mime_type,
     });
     const { data: publicUrl } = supabaseAdmin.storage.from("profile-avatars").getPublicUrl(path);
-    await supabaseAdmin.from("profiles").update({ avatar_url: publicUrl.publicUrl }).eq("id", userId);
+    const { error } = await supabaseAdmin
+      .from("profiles")
+      .update({ avatar_url: publicUrl.publicUrl })
+      .eq("id", userId);
+    if (error) throw error;
     return { ok: true, avatar_url: publicUrl.publicUrl };
   });
 
