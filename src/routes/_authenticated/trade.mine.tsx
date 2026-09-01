@@ -15,11 +15,11 @@ export const Route = createFileRoute("/_authenticated/trade/mine")({ component: 
 
 const fmt = (n: any) => `KES ${Number(n).toLocaleString()}`;
 const tierColors: Record<string, string> = {
-  bronze: "from-amber-800 to-amber-600",
-  silver: "from-slate-500 to-slate-300",
-  gold: "from-yellow-600 to-yellow-400",
-  diamond: "from-cyan-500 to-blue-400",
-  platinum: "from-fuchsia-500 to-rose-400",
+  bronze: "from-orange-500 via-amber-400 to-yellow-300",
+  silver: "from-sky-500 via-cyan-300 to-emerald-300",
+  gold: "from-yellow-300 via-amber-400 to-orange-500",
+  diamond: "from-cyan-300 via-sky-400 to-blue-500",
+  platinum: "from-fuchsia-400 via-rose-400 to-amber-300",
 };
 
 function MinePage() {
@@ -46,14 +46,18 @@ function MinePage() {
             : Number(p.daily_payout) * p.duration_days + Number(p.price);
         const dailyRate =
           Number(p.price) > 0 ? (Number(p.daily_payout) / Number(p.price)) * 100 : 0;
+        const profit = totalReturn - Number(p.price);
+        const profitRate = Number(p.price) > 0 ? (profit / Number(p.price)) * 100 : 0;
         return (
           <div key={p.id} className="glass-card overflow-hidden rounded-2xl">
             <div
-              className={`bg-gradient-to-r ${tierColors[p.tier] ?? "from-primary to-primary"} px-4 py-3 text-slate-900`}
+              className={`bg-gradient-to-r ${tierColors[p.tier] ?? "from-primary to-accent"} px-4 py-3 text-slate-950`}
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-xs font-medium uppercase opacity-80">{p.code}</div>
+                  <div className="text-xs font-bold uppercase opacity-80">
+                    {p.code} - {mode === "locked" ? "45 day locked" : "60 day daily"}
+                  </div>
                   <div className="text-lg font-bold">{p.name}</div>
                 </div>
                 <Coins className="h-6 w-6 opacity-70" />
@@ -79,6 +83,12 @@ function MinePage() {
                   {mode === "locked" ? "Locked maturity value" : "Total package value"}
                 </span>
                 <span className="font-semibold text-success">{fmt(totalReturn)}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between rounded-lg bg-success/15 px-3 py-2 text-xs">
+                <span className="text-muted-foreground">Expected profit</span>
+                <span className="font-semibold text-success">
+                  {fmt(profit)} ({profitRate.toFixed(0)}%)
+                </span>
               </div>
               <div className="mt-2 flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-xs">
                 <span className="text-muted-foreground">Cash flow</span>

@@ -48,7 +48,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title: st
           <div className="grid h-8 w-8 place-items-center rounded-lg gradient-gold">
             <Coins className="h-4 w-4" />
           </div>
-          <span className="text-base font-bold">MineHub · Admin</span>
+          <span className="text-base font-bold">MineHub - Admin</span>
         </Link>
         <nav className="flex-1 space-y-1">
           {items.map((i) => {
@@ -76,7 +76,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title: st
           <div className="flex items-center justify-between px-6 py-4">
             <h1 className="text-xl font-semibold">{title}</h1>
             <Link to="/home" className="text-xs text-muted-foreground hover:text-foreground">
-              ← Client view
+              &lt;- Client view
             </Link>
           </div>
           <div className="flex gap-1 overflow-x-auto border-t border-border/40 px-4 py-2 md:hidden">

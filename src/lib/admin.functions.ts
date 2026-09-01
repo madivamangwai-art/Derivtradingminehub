@@ -294,6 +294,28 @@ export const adminUpsertPackage = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const adminDeletePackage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const admin = await requireAdmin(context.userId);
+    const { count, error: countErr } = await admin
+      .from("user_packages")
+      .select("id", { count: "exact", head: true })
+      .eq("package_id", data.id);
+    if (countErr) throw countErr;
+
+    if ((count ?? 0) > 0) {
+      const { error } = await admin.from("packages").update({ active: false }).eq("id", data.id);
+      if (error) throw error;
+      return { ok: true, mode: "deactivated" };
+    }
+
+    const { error } = await admin.from("packages").delete().eq("id", data.id);
+    if (error) throw error;
+    return { ok: true, mode: "deleted" };
+  });
+
 export const adminPromote = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { user_id: string; role: "admin" | "client"; grant: boolean }) =>

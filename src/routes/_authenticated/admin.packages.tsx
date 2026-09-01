@@ -1,13 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { adminGetPackages, adminUpsertPackage } from "@/lib/admin.functions";
+import { Pencil, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useState } from "react";
-import { toast } from "sonner";
+import { adminDeletePackage, adminGetPackages, adminUpsertPackage } from "@/lib/admin.functions";
 import { requireAdminRoute } from "@/lib/admin-route";
 
 export const Route = createFileRoute("/_authenticated/admin/packages")({
@@ -36,7 +37,7 @@ const empty: PkgForm = {
   tier: "bronze",
   price: 0,
   daily_payout: 0,
-  duration_days: 30,
+  duration_days: 60,
   referral_bonus: 0,
   sort_order: 0,
   active: true,
@@ -48,61 +49,130 @@ function PackagesPage() {
   const qc = useQueryClient();
   const listFn = useServerFn(adminGetPackages);
   const upsertFn = useServerFn(adminUpsertPackage);
+  const deleteFn = useServerFn(adminDeletePackage);
   const { data } = useQuery({ queryKey: ["admin-packages"], queryFn: () => listFn() });
   const [form, setForm] = useState<PkgForm>(empty);
 
   const save = useMutation({
     mutationFn: () => upsertFn({ data: form }),
     onSuccess: () => {
-      toast.success("Saved");
+      toast.success("Package saved");
       setForm(empty);
       qc.invalidateQueries({ queryKey: ["admin-packages"] });
     },
     onError: (e: any) => toast.error(e.message),
   });
 
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteFn({ data: { id } }),
+    onSuccess: (result: any) => {
+      toast.success(
+        result.mode === "deactivated"
+          ? "Package has purchases, so it was retired instead."
+          : "Package deleted.",
+      );
+      setForm(empty);
+      qc.invalidateQueries({ queryKey: ["admin-packages"] });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Could not delete package"),
+  });
+
+  const selectPackage = (pkg: any) => {
+    setForm({
+      id: pkg.id,
+      code: pkg.code,
+      name: pkg.name,
+      tier: pkg.tier,
+      price: Number(pkg.price),
+      daily_payout: Number(pkg.daily_payout),
+      duration_days: Number(pkg.duration_days),
+      referral_bonus: Number(pkg.referral_bonus),
+      sort_order: Number(pkg.sort_order),
+      active: Boolean(pkg.active),
+      payout_mode: pkg.payout_mode ?? "daily",
+      maturity_return_rate: Number(pkg.maturity_return_rate ?? 1),
+    });
+  };
+
+  const handleModeChange = (mode: PkgForm["payout_mode"]) => {
+    setForm({
+      ...form,
+      payout_mode: mode,
+      duration_days: mode === "locked" ? 45 : 60,
+      daily_payout: mode === "locked" ? 0 : form.daily_payout,
+      maturity_return_rate:
+        mode === "locked" ? Math.max(form.maturity_return_rate ?? 1.3, 1.25) : 1,
+    });
+  };
+
   return (
     <AdminShell title="Packages">
-      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+      <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         <div className="glass-card overflow-hidden rounded-2xl">
-          <div className="grid grid-cols-[80px_1fr_90px_100px_100px_80px_60px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
+          <div className="grid grid-cols-[76px_1fr_86px_96px_86px_78px_112px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
             <div>Code</div>
             <div>Name</div>
             <div>Mode</div>
             <div>Price</div>
             <div>Daily</div>
-            <div>Bonus</div>
-            <div></div>
+            <div>Status</div>
+            <div>Actions</div>
           </div>
           {(data ?? []).map((p: any) => (
-            <button
+            <div
               key={p.id}
-              onClick={() => setForm(p)}
-              className="grid w-full grid-cols-[80px_1fr_90px_100px_100px_80px_60px] items-center gap-2 border-b border-border/40 px-4 py-3 text-left text-sm hover:bg-muted/40"
+              className="grid grid-cols-[76px_1fr_86px_96px_86px_78px_112px] items-center gap-2 border-b border-border/40 px-4 py-3 text-left text-sm hover:bg-muted/40"
             >
-              <div className="font-medium">{p.code}</div>
+              <div className="font-semibold">{p.code}</div>
               <div>
-                {p.name}{" "}
-                <span className="text-[10px] uppercase text-muted-foreground"> - {p.tier}</span>
+                <div className="font-medium">{p.name}</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {p.tier} - {Number(p.duration_days)} days - referral KES{" "}
+                  {Number(p.referral_bonus).toLocaleString()}
+                </div>
               </div>
               <div className="text-xs capitalize text-primary">{p.payout_mode ?? "daily"}</div>
               <div>{Number(p.price).toLocaleString()}</div>
               <div>{Number(p.daily_payout).toLocaleString()}</div>
-              <div>{Number(p.referral_bonus).toLocaleString()}</div>
-              <div>{p.active ? "Yes" : "No"}</div>
-            </button>
+              <div>{p.active ? "Live" : "Retired"}</div>
+              <div className="flex items-center gap-1">
+                <Button size="sm" variant="secondary" onClick={() => selectPackage(p)}>
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={remove.isPending}
+                  onClick={() => {
+                    if (confirm(`Delete ${p.name}? Packages with purchases will be retired.`)) {
+                      remove.mutate(p.id);
+                    }
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
           ))}
         </div>
 
         <div className="glass-card rounded-2xl p-4">
-          <h3 className="text-sm font-semibold">{form.id ? "Edit" : "New"} package</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">{form.id ? "Edit" : "New"} package</h3>
+            {form.id && (
+              <Button size="sm" variant="secondary" onClick={() => setForm(empty)}>
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                New
+              </Button>
+            )}
+          </div>
           <div className="mt-3 space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label>Code</Label>
                 <Input
                   value={form.code}
-                  onChange={(e) => setForm({ ...form, code: e.target.value })}
+                  onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
                 />
               </div>
               <div>
@@ -126,9 +196,7 @@ function PackagesPage() {
                 <select
                   className="w-full rounded-md border border-input bg-input px-3 py-2 text-sm"
                   value={form.payout_mode ?? "daily"}
-                  onChange={(e) =>
-                    setForm({ ...form, payout_mode: e.target.value as PkgForm["payout_mode"] })
-                  }
+                  onChange={(e) => handleModeChange(e.target.value as PkgForm["payout_mode"])}
                 >
                   <option value="daily">Daily 60d</option>
                   <option value="locked">Locked 45d</option>
@@ -159,6 +227,7 @@ function PackagesPage() {
                 <Label>Price</Label>
                 <Input
                   type="number"
+                  min="1"
                   value={form.price}
                   onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
                 />
@@ -167,7 +236,9 @@ function PackagesPage() {
                 <Label>Daily payout</Label>
                 <Input
                   type="number"
+                  min="0"
                   value={form.daily_payout}
+                  disabled={form.payout_mode === "locked"}
                   onChange={(e) => setForm({ ...form, daily_payout: Number(e.target.value) })}
                 />
               </div>
@@ -175,6 +246,7 @@ function PackagesPage() {
                 <Label>Duration (days)</Label>
                 <Input
                   type="number"
+                  min="1"
                   value={form.duration_days}
                   onChange={(e) => setForm({ ...form, duration_days: Number(e.target.value) })}
                 />
@@ -183,6 +255,7 @@ function PackagesPage() {
                 <Label>Referral bonus</Label>
                 <Input
                   type="number"
+                  min="0"
                   value={form.referral_bonus}
                   onChange={(e) => setForm({ ...form, referral_bonus: Number(e.target.value) })}
                 />
@@ -212,13 +285,11 @@ function PackagesPage() {
                 disabled={save.isPending}
                 className="flex-1 gradient-gold"
               >
-                {save.isPending ? "Saving..." : "Save"}
+                {save.isPending ? "Saving..." : form.id ? "Save changes" : "Create package"}
               </Button>
-              {form.id && (
-                <Button variant="secondary" onClick={() => setForm(empty)}>
-                  New
-                </Button>
-              )}
+              <Button variant="secondary" onClick={() => setForm(empty)}>
+                Clear
+              </Button>
             </div>
           </div>
         </div>
