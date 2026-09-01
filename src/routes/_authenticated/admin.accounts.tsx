@@ -86,7 +86,7 @@ function Page() {
               icon={Landmark}
               label="House balance"
               value={fmt(data.house.balance)}
-              hint="Deposits + spin retained + fees − withdrawals paid"
+              hint="Deposits + unclaimed red packets + fees - withdrawals paid"
               tone={houseTone}
             />
             <Stat
@@ -159,7 +159,7 @@ function Page() {
               icon={ArrowUpFromLine}
               label="Paid out to clients (net)"
               value={fmt(data.totals.paidOutNet)}
-              hint="After 5% fee retained"
+              hint="After 20% fee retained"
             />
             <Stat
               icon={Sparkles}
@@ -177,9 +177,9 @@ function Page() {
           <div className="grid gap-3 md:grid-cols-3">
             <Stat
               icon={Sparkles}
-              label="Spin retained"
-              value={fmt(data.spin.retained)}
-              hint={`Spent ${fmt(data.spin.spent)} · Paid out ${fmt(data.spin.paidOut)}`}
+              label="Red packet reserve"
+              value={fmt(data.redPackets?.unclaimed ?? 0)}
+              hint={`Funded ${fmt(data.redPackets?.funded ?? 0)} - Claimed ${fmt(data.redPackets?.claimed ?? 0)}`}
               tone="good"
             />
             <Stat
@@ -241,10 +241,11 @@ function Page() {
               <b>Runway</b> estimates how long the house can sustain net outflow at the current
               30-day pace.
             </li>
-            <li>Every withdrawal retains 5% as tax/compliance — see the fees row.</li>
+            <li>Every withdrawal retains 20% for gas fees, transaction fees, and tax.</li>
           </ul>
         </div>
       </div>
     </AdminShell>
   );
 }
+

@@ -1,5 +1,5 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
-import { Home, Wallet, TrendingUp, Users, User, LogOut, Sun, Moon } from "lucide-react";
+import { BarChart3, ChartNoAxesCombined, Home, User, LogOut, Sun, Moon } from "lucide-react";
 import type { ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -8,10 +8,9 @@ import { useTheme } from "@/lib/theme";
 
 const tabs = [
   { to: "/home", label: "Home", icon: Home },
-  { to: "/wallet", label: "Wallet", icon: Wallet },
-  { to: "/trade", label: "Trade", icon: TrendingUp },
-  { to: "/team", label: "Team", icon: Users },
-  { to: "/my", label: "My", icon: User },
+  { to: "/trade/market", label: "Market", icon: ChartNoAxesCombined },
+  { to: "/trade/mine", label: "Copy Trading", icon: BarChart3 },
+  { to: "/my", label: "My Account", icon: User },
 ] as const;
 
 export function ClientShell({ children, title, onLogoClick }: { children: ReactNode; title?: string; onLogoClick?: () => void }) {
@@ -58,7 +57,7 @@ export function ClientShell({ children, title, onLogoClick }: { children: ReactN
       </header>
       <main className="mx-auto max-w-lg px-4 py-4">{children}</main>
       <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/60 bg-background/95 backdrop-blur">
-        <div className="mx-auto grid max-w-lg grid-cols-5">
+        <div className="mx-auto grid max-w-lg grid-cols-4">
           {tabs.map((t) => {
             const active = path === t.to || path.startsWith(t.to + "/");
             return (

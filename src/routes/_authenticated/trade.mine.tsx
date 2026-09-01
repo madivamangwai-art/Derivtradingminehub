@@ -3,170 +3,233 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { toast } from "sonner";
-import {
-  getPackageMaturityReturnRate,
-  getPackagePayoutMode,
-  listPackages,
-  purchasePackage,
-} from "@/lib/app.functions";
+import { applyCopyTrade, getCopyTradingData, type CopyTradeType } from "@/lib/app.functions";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Coins, Clock, TrendingUp, Gift } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Clock, LockKeyhole, SlidersHorizontal, TrendingUp } from "lucide-react";
 
-export const Route = createFileRoute("/_authenticated/trade/mine")({ component: MinePage });
+export const Route = createFileRoute("/_authenticated/trade/mine")({ component: CopyTradingPage });
 
-const fmt = (n: any) => `KES ${Number(n).toLocaleString()}`;
-const tierColors: Record<string, string> = {
-  bronze: "from-orange-500 via-amber-400 to-yellow-300",
-  silver: "from-sky-500 via-cyan-300 to-emerald-300",
-  gold: "from-yellow-300 via-amber-400 to-orange-500",
-  diamond: "from-cyan-300 via-sky-400 to-blue-500",
-  platinum: "from-fuchsia-400 via-rose-400 to-amber-300",
-};
-const packageGroups = [
-  { value: "locked-60", label: "Locked 60 days" },
-  { value: "daily-45", label: "Daily 45 days" },
-  { value: "daily-30", label: "Daily 30 days" },
-] as const;
-type PackageGroup = (typeof packageGroups)[number]["value"];
+const fmt = (n: any) =>
+  `KES ${Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
-function getPackageGroup(pkg: any): PackageGroup {
-  const mode = getPackagePayoutMode(pkg);
-  if (mode === "locked") return "locked-60";
-  return Number(pkg.duration_days) === 30 ? "daily-30" : "daily-45";
-}
+const tradeTypes: Array<{
+  value: CopyTradeType;
+  title: string;
+  term: string;
+  detail: string;
+}> = [
+  {
+    value: "daily",
+    title: "Daily Copy Trading",
+    term: "30 min",
+    detail: "Capital plus 1.6% returns when the session closes.",
+  },
+  {
+    value: "locked7",
+    title: "7-Day Locked",
+    term: "7 days",
+    detail: "Capital stays locked while 1.6% profit accrues daily.",
+  },
+  {
+    value: "locked30",
+    title: "30-Day Locked",
+    term: "30 days",
+    detail: "Long lock with daily 1.6% profit accrual.",
+  },
+];
 
-function MinePage() {
+function CopyTradingPage() {
   const qc = useQueryClient();
-  const listFn = useServerFn(listPackages);
-  const buyFn = useServerFn(purchasePackage);
-  const [activeGroup, setActiveGroup] = useState<PackageGroup>("locked-60");
-  const { data: pkgs } = useQuery({ queryKey: ["packages"], queryFn: () => listFn() });
-  const visiblePackages = (pkgs ?? []).filter((p: any) => getPackageGroup(p) === activeGroup);
-  const buy = useMutation({
-    mutationFn: (id: string) => buyFn({ data: { package_id: id } }),
-    onSuccess: () => {
-      toast.success("Package activated!");
-      qc.invalidateQueries();
+  const dataFn = useServerFn(getCopyTradingData);
+  const applyFn = useServerFn(applyCopyTrade);
+  const { data } = useQuery({ queryKey: ["copy-trading"], queryFn: () => dataFn() });
+  const [tradeType, setTradeType] = useState<CopyTradeType>("daily");
+  const [code, setCode] = useState("");
+  const [amount, setAmount] = useState("");
+  const selected = tradeTypes.find((item) => item.value === tradeType)!;
+  const expectedProfit = Number(amount || 0) * Number(data?.profitRate ?? 0.016);
+
+  const apply = useMutation({
+    mutationFn: () =>
+      applyFn({
+        data: {
+          code: code.trim().toUpperCase(),
+          amount: Number(amount),
+          trade_type: tradeType,
+        },
+      }),
+    onSuccess: (result: any) => {
+      if (result.ok) toast.success("Copy trade opened");
+      else toast.error(result.message ?? "Signal did not match. Trade lost.");
+      setCode("");
+      setAmount("");
+      qc.invalidateQueries({ queryKey: ["copy-trading"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["wallet"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Purchase failed"),
+    onError: (e: any) => toast.error(e.message ?? "Copy trade failed"),
   });
 
   return (
-    <div className="space-y-3">
-      <Tabs value={activeGroup} onValueChange={(value) => setActiveGroup(value as PackageGroup)}>
-        <TabsList className="grid h-auto w-full grid-cols-3 rounded-xl">
-          {packageGroups.map((group) => (
-            <TabsTrigger key={group.value} value={group.value} className="min-h-10 text-xs">
-              {group.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+    <div className="space-y-4">
+      <div className="glass-card rounded-2xl p-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xs uppercase text-muted-foreground">Available Balance</div>
+            <div className="mt-1 text-3xl font-bold">{fmt(data?.wallet?.balance)}</div>
+          </div>
+          <div className="grid h-12 w-12 place-items-center rounded-xl bg-primary/15 text-primary">
+            <SlidersHorizontal className="h-6 w-6" />
+          </div>
+        </div>
+      </div>
 
-      {visiblePackages.map((p: any) => {
-        const mode = getPackagePayoutMode(p);
-        const totalReturn =
-          mode === "locked"
-            ? Number(p.price) * getPackageMaturityReturnRate(p)
-            : Number(p.daily_payout) * p.duration_days + Number(p.price);
-        const dailyRate =
-          Number(p.price) > 0 ? (Number(p.daily_payout) / Number(p.price)) * 100 : 0;
-        const profit = totalReturn - Number(p.price);
-        const profitRate = Number(p.price) > 0 ? (profit / Number(p.price)) * 100 : 0;
-        return (
-          <div key={p.id} className="glass-card overflow-hidden rounded-2xl">
-            <div
-              className={`bg-gradient-to-r ${tierColors[p.tier] ?? "from-primary to-accent"} px-4 py-3 text-slate-950`}
+      <div className="glass-card rounded-2xl p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold">Follow Signal</h2>
+            <p className="text-xs text-muted-foreground">Profit rate: 1.6% per valid trade cycle.</p>
+          </div>
+          <TrendingUp className="h-5 w-5 text-success" />
+        </div>
+
+        <RadioGroup
+          value={tradeType}
+          onValueChange={(value) => setTradeType(value as CopyTradeType)}
+          className="grid gap-2"
+        >
+          {tradeTypes.map((type) => (
+            <label
+              key={type.value}
+              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
+                tradeType === type.value ? "border-primary bg-primary/10" : "border-border bg-card"
+              }`}
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-bold uppercase opacity-80">
-                    {p.code} -{" "}
-                    {mode === "locked"
-                      ? `${p.duration_days} day locked`
-                      : `${p.duration_days} day daily`}
-                  </div>
-                  <div className="text-lg font-bold">{p.name}</div>
-                </div>
-                <Coins className="h-6 w-6 opacity-70" />
-              </div>
-            </div>
-            <div className="p-4">
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <Stat icon={Coins} label="Price" value={fmt(p.price)} />
-                <Stat
-                  icon={TrendingUp}
-                  label={mode === "locked" ? "Maturity" : "Daily"}
-                  value={
-                    mode === "locked"
-                      ? `${Math.round(getPackageMaturityReturnRate(p) * 100)}%`
-                      : fmt(p.daily_payout)
-                  }
-                  highlight
-                />
-                <Stat icon={Clock} label="Term" value={`${p.duration_days}d`} />
-              </div>
-              <div className="mt-3 flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-xs">
-                <span className="text-muted-foreground">
-                  {mode === "locked" ? "Locked maturity value" : "Total package value"}
+              <RadioGroupItem value={type.value} className="mt-1" />
+              <span className="flex-1">
+                <span className="flex items-center justify-between gap-2">
+                  <span className="font-semibold">{type.title}</span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                    {type.term}
+                  </span>
                 </span>
-                <span className="font-semibold text-success">{fmt(totalReturn)}</span>
-              </div>
-              <div className="mt-2 flex items-center justify-between rounded-lg bg-success/15 px-3 py-2 text-xs">
-                <span className="text-muted-foreground">Expected profit</span>
-                <span className="font-semibold text-success">
-                  {fmt(profit)} ({profitRate.toFixed(0)}%)
-                </span>
-              </div>
-              <div className="mt-2 flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-xs">
-                <span className="text-muted-foreground">Cash flow</span>
-                <span className="font-semibold text-primary">
-                  {mode === "locked"
-                    ? "Locked until maturity"
-                    : `${dailyRate.toFixed(1)}% daily for ${p.duration_days} days`}
-                </span>
-              </div>
-              <div className="mt-2 flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-xs">
-                <span className="flex items-center gap-1 text-muted-foreground">
-                  <Gift className="h-3 w-3" /> Referral bonus
-                </span>
-                <span className="font-semibold text-primary">{fmt(p.referral_bonus)}</span>
-              </div>
-              <div className="mt-2 flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-xs">
-                <span className="text-muted-foreground">Purchase limit</span>
-                <span
-                  className={`font-semibold ${p.purchases_remaining > 0 ? "text-success" : "text-destructive"}`}
-                >
-                  {p.purchased_count}/{p.purchase_limit}
-                </span>
-              </div>
+                <span className="mt-1 block text-xs text-muted-foreground">{type.detail}</span>
+              </span>
+            </label>
+          ))}
+        </RadioGroup>
+
+        <div className="mt-4 space-y-3">
+          <div>
+            <Label>Signal Code</Label>
+            <Input
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="Enter signal code"
+            />
+          </div>
+          <div>
+            <Label>Copy Trading Amount</Label>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                min={1}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="Enter amount"
+              />
               <Button
-                onClick={() => buy.mutate(p.id)}
-                disabled={buy.isPending || p.purchases_remaining <= 0}
-                className="mt-4 w-full gradient-gold"
+                type="button"
+                variant="secondary"
+                onClick={() => setAmount(String(Math.floor(Number(data?.wallet?.balance ?? 0))))}
               >
-                {p.purchases_remaining > 0 ? `Buy for ${fmt(p.price)}` : "Limit reached"}
+                Max
               </Button>
             </div>
           </div>
-        );
-      })}
-      {visiblePackages.length === 0 ? (
-        <div className="glass-card rounded-2xl p-6 text-center text-sm text-muted-foreground">
-          No active packages in this group yet.
+          <div className="rounded-xl bg-muted/40 p-3 text-xs">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Selected cycle</span>
+              <span className="font-medium">{selected.term}</span>
+            </div>
+            <div className="mt-1 flex justify-between">
+              <span className="text-muted-foreground">Expected profit</span>
+              <span className="font-semibold text-success">{fmt(expectedProfit)}</span>
+            </div>
+          </div>
+          <Button
+            onClick={() => apply.mutate()}
+            disabled={apply.isPending || !code.trim() || Number(amount) <= 0}
+            className="w-full gradient-gold"
+          >
+            {apply.isPending ? "Applying..." : "Apply to Copy Trading"}
+          </Button>
         </div>
-      ) : null}
+      </div>
+
+      <div className="glass-card rounded-2xl p-4">
+        <h2 className="mb-3 text-sm font-semibold">My Copy Trading</h2>
+        {(data?.trades ?? []).length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            No copy trades yet.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {(data?.trades ?? []).map((trade: any) => {
+              const open = trade.status === "open";
+              return (
+                <div key={trade.id} className="rounded-xl bg-card p-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold capitalize">
+                        {trade.trade_type.replace("locked", "locked ")}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Code {trade.code_entered} - {new Date(trade.opened_at).toLocaleString()}
+                      </div>
+                    </div>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] uppercase ${
+                        open
+                          ? "bg-primary/15 text-primary"
+                          : trade.status === "won"
+                            ? "bg-success/15 text-success"
+                            : "bg-destructive/15 text-destructive"
+                      }`}
+                    >
+                      {trade.status}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                    <MiniStat label="Capital" value={fmt(trade.amount)} />
+                    <MiniStat label="Profit paid" value={fmt(trade.total_profit_paid)} />
+                    <MiniStat
+                      label={open ? "Closes" : "Closed"}
+                      value={new Date(trade.closes_at).toLocaleDateString()}
+                      icon={open ? Clock : LockKeyhole}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function Stat({ icon: Icon, label, value, highlight }: any) {
+function MiniStat({ label, value, icon: Icon }: { label: string; value: string; icon?: any }) {
   return (
-    <div>
-      <Icon className={`mx-auto h-4 w-4 ${highlight ? "text-primary" : "text-muted-foreground"}`} />
-      <div className="mt-1 text-[10px] uppercase text-muted-foreground">{label}</div>
-      <div className={`text-sm font-semibold ${highlight ? "text-primary" : ""}`}>{value}</div>
+    <div className="rounded-lg bg-muted/40 p-2">
+      <div className="flex items-center gap-1 text-[10px] uppercase text-muted-foreground">
+        {Icon ? <Icon className="h-3 w-3" /> : null}
+        {label}
+      </div>
+      <div className="mt-1 font-semibold">{value}</div>
     </div>
   );
 }

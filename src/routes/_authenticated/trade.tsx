@@ -4,15 +4,14 @@ import { ClientShell } from "@/components/layout/client-shell";
 export const Route = createFileRoute("/_authenticated/trade")({ component: TradeLayout });
 
 const subs = [
-  { to: "/trade/mine", label: "Mine" },
+  { to: "/trade/mine", label: "Copy Trading" },
   { to: "/trade/redpacket", label: "Red Packet" },
-  { to: "/trade/spin", label: "Spin" },
 ] as const;
 
 function TradeLayout() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   return (
-    <ClientShell title="Trade">
+    <ClientShell title="Copy Trading">
       <div className="mb-4 flex gap-2 rounded-xl bg-muted/40 p-1">
         {subs.map((s) => {
           const active = path === s.to || (path === "/trade" && s.to === "/trade/mine");

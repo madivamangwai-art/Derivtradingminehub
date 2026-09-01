@@ -22,6 +22,7 @@ import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authentic
 import { Route as AuthenticatedTradeSpinRouteImport } from './routes/_authenticated/trade.spin'
 import { Route as AuthenticatedTradeRedpacketRouteImport } from './routes/_authenticated/trade.redpacket'
 import { Route as AuthenticatedTradeMineRouteImport } from './routes/_authenticated/trade.mine'
+import { Route as AuthenticatedTradeMarketRouteImport } from './routes/_authenticated/trade.market'
 import { Route as AuthenticatedMySupportRouteImport } from './routes/_authenticated/my.support'
 import { Route as AuthenticatedAdminWithdrawalsRouteImport } from './routes/_authenticated/admin.withdrawals'
 import { Route as AuthenticatedAdminTreasuryRouteImport } from './routes/_authenticated/admin.treasury'
@@ -102,6 +103,12 @@ const AuthenticatedTradeMineRoute = AuthenticatedTradeMineRouteImport.update({
   path: '/mine',
   getParentRoute: () => AuthenticatedTradeRoute,
 } as any)
+const AuthenticatedTradeMarketRoute =
+  AuthenticatedTradeMarketRouteImport.update({
+    id: '/market',
+    path: '/market',
+    getParentRoute: () => AuthenticatedTradeRoute,
+  } as any)
 const AuthenticatedMySupportRoute = AuthenticatedMySupportRouteImport.update({
   id: '/support',
   path: '/support',
@@ -201,6 +208,7 @@ export interface FileRoutesByFullPath {
   '/admin/treasury': typeof AuthenticatedAdminTreasuryRoute
   '/admin/withdrawals': typeof AuthenticatedAdminWithdrawalsRoute
   '/my/support': typeof AuthenticatedMySupportRoute
+  '/trade/market': typeof AuthenticatedTradeMarketRoute
   '/trade/mine': typeof AuthenticatedTradeMineRoute
   '/trade/redpacket': typeof AuthenticatedTradeRedpacketRoute
   '/trade/spin': typeof AuthenticatedTradeSpinRoute
@@ -228,6 +236,7 @@ export interface FileRoutesByTo {
   '/admin/treasury': typeof AuthenticatedAdminTreasuryRoute
   '/admin/withdrawals': typeof AuthenticatedAdminWithdrawalsRoute
   '/my/support': typeof AuthenticatedMySupportRoute
+  '/trade/market': typeof AuthenticatedTradeMarketRoute
   '/trade/mine': typeof AuthenticatedTradeMineRoute
   '/trade/redpacket': typeof AuthenticatedTradeRedpacketRoute
   '/trade/spin': typeof AuthenticatedTradeSpinRoute
@@ -258,6 +267,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/treasury': typeof AuthenticatedAdminTreasuryRoute
   '/_authenticated/admin/withdrawals': typeof AuthenticatedAdminWithdrawalsRoute
   '/_authenticated/my/support': typeof AuthenticatedMySupportRoute
+  '/_authenticated/trade/market': typeof AuthenticatedTradeMarketRoute
   '/_authenticated/trade/mine': typeof AuthenticatedTradeMineRoute
   '/_authenticated/trade/redpacket': typeof AuthenticatedTradeRedpacketRoute
   '/_authenticated/trade/spin': typeof AuthenticatedTradeSpinRoute
@@ -288,6 +298,7 @@ export interface FileRouteTypes {
     | '/admin/treasury'
     | '/admin/withdrawals'
     | '/my/support'
+    | '/trade/market'
     | '/trade/mine'
     | '/trade/redpacket'
     | '/trade/spin'
@@ -315,6 +326,7 @@ export interface FileRouteTypes {
     | '/admin/treasury'
     | '/admin/withdrawals'
     | '/my/support'
+    | '/trade/market'
     | '/trade/mine'
     | '/trade/redpacket'
     | '/trade/spin'
@@ -344,6 +356,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/treasury'
     | '/_authenticated/admin/withdrawals'
     | '/_authenticated/my/support'
+    | '/_authenticated/trade/market'
     | '/_authenticated/trade/mine'
     | '/_authenticated/trade/redpacket'
     | '/_authenticated/trade/spin'
@@ -454,6 +467,13 @@ declare module '@tanstack/react-router' {
       path: '/mine'
       fullPath: '/trade/mine'
       preLoaderRoute: typeof AuthenticatedTradeMineRouteImport
+      parentRoute: typeof AuthenticatedTradeRoute
+    }
+    '/_authenticated/trade/market': {
+      id: '/_authenticated/trade/market'
+      path: '/market'
+      fullPath: '/trade/market'
+      preLoaderRoute: typeof AuthenticatedTradeMarketRouteImport
       parentRoute: typeof AuthenticatedTradeRoute
     }
     '/_authenticated/my/support': {
@@ -570,6 +590,7 @@ const AuthenticatedMyRouteWithChildren = AuthenticatedMyRoute._addFileChildren(
 )
 
 interface AuthenticatedTradeRouteChildren {
+  AuthenticatedTradeMarketRoute: typeof AuthenticatedTradeMarketRoute
   AuthenticatedTradeMineRoute: typeof AuthenticatedTradeMineRoute
   AuthenticatedTradeRedpacketRoute: typeof AuthenticatedTradeRedpacketRoute
   AuthenticatedTradeSpinRoute: typeof AuthenticatedTradeSpinRoute
@@ -577,6 +598,7 @@ interface AuthenticatedTradeRouteChildren {
 }
 
 const AuthenticatedTradeRouteChildren: AuthenticatedTradeRouteChildren = {
+  AuthenticatedTradeMarketRoute: AuthenticatedTradeMarketRoute,
   AuthenticatedTradeMineRoute: AuthenticatedTradeMineRoute,
   AuthenticatedTradeRedpacketRoute: AuthenticatedTradeRedpacketRoute,
   AuthenticatedTradeSpinRoute: AuthenticatedTradeSpinRoute,

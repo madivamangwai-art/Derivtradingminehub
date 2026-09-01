@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/admin-shell";
@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   adminDeletePackage,
+  adminGenerateCopyTradeSignal,
+  adminGetCopyTrading,
   adminGetPackages,
   adminListPackagePurchases,
   adminUpsertPackage,
@@ -54,12 +56,18 @@ function PackagesPage() {
   const qc = useQueryClient();
   const listFn = useServerFn(adminGetPackages);
   const purchasesFn = useServerFn(adminListPackagePurchases);
+  const copyTradingFn = useServerFn(adminGetCopyTrading);
+  const generateSignalFn = useServerFn(adminGenerateCopyTradeSignal);
   const upsertFn = useServerFn(adminUpsertPackage);
   const deleteFn = useServerFn(adminDeletePackage);
   const { data } = useQuery({ queryKey: ["admin-packages"], queryFn: () => listFn() });
   const { data: purchases } = useQuery({
     queryKey: ["admin-package-purchases"],
     queryFn: () => purchasesFn(),
+  });
+  const { data: copyTrading } = useQuery({
+    queryKey: ["admin-copy-trading"],
+    queryFn: () => copyTradingFn(),
   });
   const [form, setForm] = useState<PkgForm>(empty);
   const activeCount = (purchases ?? []).filter((p: any) => p.real_status === "active").length;
@@ -93,6 +101,17 @@ function PackagesPage() {
     onError: (e: any) => toast.error(e.message ?? "Could not delete package"),
   });
 
+  const generateSignal = useMutation({
+    mutationFn: (trade_type: "daily" | "locked7" | "locked30") =>
+      generateSignalFn({ data: { trade_type } }),
+    onSuccess: (signal: any) => {
+      toast.success(`Signal generated: ${signal.code}`);
+      navigator.clipboard?.writeText(signal.code);
+      qc.invalidateQueries({ queryKey: ["admin-copy-trading"] });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Could not generate signal"),
+  });
+
   const selectPackage = (pkg: any) => {
     setForm({
       id: pkg.id,
@@ -122,7 +141,139 @@ function PackagesPage() {
   };
 
   return (
-    <AdminShell title="Packages">
+    <AdminShell title="Copy Trading">
+      <div className="mb-4 grid gap-4 lg:grid-cols-[360px_1fr]">
+        <div className="glass-card rounded-2xl p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4 text-primary" />
+            <h3 className="text-sm font-semibold">Generate signal codes</h3>
+          </div>
+          <div className="grid gap-2">
+            <SignalButton
+              label="Daily 30-minute"
+              hint="Up to 4 codes per day"
+              onClick={() => generateSignal.mutate("daily")}
+              disabled={generateSignal.isPending}
+            />
+            <SignalButton
+              label="7-day locked"
+              hint="One active code at a time"
+              onClick={() => generateSignal.mutate("locked7")}
+              disabled={generateSignal.isPending}
+            />
+            <SignalButton
+              label="30-day locked"
+              hint="One active code at a time"
+              onClick={() => generateSignal.mutate("locked30")}
+              disabled={generateSignal.isPending}
+            />
+          </div>
+        </div>
+
+        <div className="glass-card overflow-hidden rounded-2xl">
+          <div className="grid grid-cols-[112px_86px_1fr_96px_88px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
+            <div>Code</div>
+            <div>Type</div>
+            <div>Expires</div>
+            <div>Status</div>
+            <div>Copy</div>
+          </div>
+          {(copyTrading?.signals ?? []).slice(0, 8).map((signal: any) => {
+            const active = signal.active && new Date(signal.expires_at).getTime() > Date.now();
+            return (
+              <div
+                key={signal.id}
+                className="grid grid-cols-[112px_86px_1fr_96px_88px] items-center gap-2 border-b border-border/40 px-4 py-3 text-sm"
+              >
+                <div className="font-mono font-semibold">{signal.code}</div>
+                <div className="text-xs capitalize text-primary">
+                  {String(signal.trade_type).replace("locked", "locked ")}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {new Date(signal.expires_at).toLocaleString()}
+                </div>
+                <div>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] uppercase ${
+                      active ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {active ? "Active" : "Expired"}
+                  </span>
+                </div>
+                <button
+                  className="inline-flex w-fit items-center gap-1 rounded-md bg-primary/15 px-2 py-1 text-xs text-primary"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(signal.code);
+                    toast.success("Copied");
+                  }}
+                >
+                  <Copy className="h-3 w-3" /> Copy
+                </button>
+              </div>
+            );
+          })}
+          {(copyTrading?.signals ?? []).length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              No copy trading signals generated yet.
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mb-4 glass-card overflow-hidden rounded-2xl">
+        <div className="flex flex-col gap-3 border-b border-border/60 px-4 py-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Copy trading ledger</h3>
+            <div className="text-xs text-muted-foreground">
+              Open {copyTrading?.summary?.openTrades ?? 0} - Won{" "}
+              {copyTrading?.summary?.wonTrades ?? 0} - Lost{" "}
+              {copyTrading?.summary?.lostTrades ?? 0}
+            </div>
+          </div>
+          <MiniStat
+            label="Open profit exposure"
+            value={`KES ${Number(copyTrading?.summary?.openDailyOutflow ?? 0).toLocaleString()}`}
+            tone="text-primary"
+          />
+        </div>
+        <div className="hidden grid-cols-[1.2fr_96px_88px_96px_1fr_82px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground lg:grid">
+          <div>Client</div>
+          <div>Type</div>
+          <div>Amount</div>
+          <div>Code</div>
+          <div>Closes</div>
+          <div>Status</div>
+        </div>
+        {(copyTrading?.trades ?? []).slice(0, 20).map((trade: any) => (
+          <div
+            key={trade.id}
+            className="grid gap-2 border-b border-border/40 px-4 py-3 text-sm lg:grid-cols-[1.2fr_96px_88px_96px_1fr_82px] lg:items-center"
+          >
+            <div>
+              <div className="font-medium">{trade.profile?.full_name ?? "Unnamed client"}</div>
+              <div className="text-[11px] text-muted-foreground">
+                {trade.profile?.phone ?? trade.profile?.email ?? trade.user_id}
+              </div>
+            </div>
+            <div className="text-xs capitalize text-primary">
+              {String(trade.trade_type).replace("locked", "locked ")}
+            </div>
+            <div>KES {Number(trade.amount ?? 0).toLocaleString()}</div>
+            <div className="font-mono text-xs">{trade.code_entered}</div>
+            <div className="text-xs text-muted-foreground">
+              {new Date(trade.closes_at).toLocaleString()}
+            </div>
+            <StatusPill status={trade.status} />
+          </div>
+        ))}
+        {(copyTrading?.trades ?? []).length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+            No copy trades yet.
+          </div>
+        ) : null}
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         <div className="glass-card overflow-hidden rounded-2xl">
           <div className="grid grid-cols-[76px_1fr_86px_96px_86px_78px_112px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
@@ -316,7 +467,7 @@ function PackagesPage() {
           <div>
             <h3 className="text-sm font-semibold">Client package ledger</h3>
             <div className="text-xs text-muted-foreground">
-              Active packages count in expected outflow only while their expiry date is still ahead.
+              Legacy package subscriptions count in expected outflow only while their expiry date is still ahead.
             </div>
           </div>
           <div className="grid grid-cols-4 gap-2 text-center text-[11px]">
@@ -405,10 +556,43 @@ function MiniStat({ label, value, tone = "text-foreground" }: any) {
   );
 }
 
+function SignalButton({
+  label,
+  hint,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  hint: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex items-center justify-between rounded-xl border border-border bg-card px-3 py-3 text-left transition hover:border-primary/50 disabled:opacity-60"
+    >
+      <span>
+        <span className="block text-sm font-semibold">{label}</span>
+        <span className="text-xs text-muted-foreground">{hint}</span>
+      </span>
+      <Plus className="h-4 w-4 text-primary" />
+    </button>
+  );
+}
+
 function StatusPill({ status }: { status: string }) {
   const cls =
     status === "active"
       ? "bg-success/15 text-success"
+      : status === "won"
+        ? "bg-success/15 text-success"
+        : status === "open"
+          ? "bg-primary/15 text-primary"
+          : status === "lost"
+            ? "bg-destructive/15 text-destructive"
       : status === "depleted"
         ? "bg-warning/15 text-warning"
         : "bg-muted text-muted-foreground";

@@ -16,9 +16,101 @@ const PURCHASE_LIMIT_BY_TIER: Record<string, number> = {
 };
 
 export type PackagePayoutMode = "locked" | "daily";
+export type CopyTradeType = "daily" | "locked7" | "locked30";
 
 function money(amount: number) {
   return Math.round(Number(amount) * 100) / 100;
+}
+
+const COPY_TRADE_PROFIT_RATE = 0.016;
+const DAILY_COPY_TRADE_MINUTES = 30;
+
+function getCopyTradeDurationMs(type: CopyTradeType) {
+  if (type === "daily") return DAILY_COPY_TRADE_MINUTES * 60 * 1000;
+  if (type === "locked7") return 7 * 24 * 3600 * 1000;
+  return 30 * 24 * 3600 * 1000;
+}
+
+function getCopyTradeLabel(type: CopyTradeType) {
+  if (type === "daily") return "30-minute copy trade";
+  if (type === "locked7") return "7-day locked copy trade";
+  return "30-day locked copy trade";
+}
+
+async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
+  const now = Date.now();
+  let query = supabaseAdmin
+    .from("copy_trades")
+    .select("*")
+    .eq("status", "open")
+    .lte("last_profit_at", new Date(now).toISOString());
+  if (userId) query = query.eq("user_id", userId);
+
+  const { data: trades } = await query.limit(500);
+  for (const trade of trades ?? []) {
+    const openedAt = new Date(trade.opened_at).getTime();
+    const closesAt = new Date(trade.closes_at).getTime();
+    const lastProfitAt = new Date(trade.last_profit_at ?? trade.opened_at).getTime();
+    const amount = Number(trade.amount ?? 0);
+    const rate = Number(trade.profit_rate ?? COPY_TRADE_PROFIT_RATE);
+    const closeReached = closesAt <= now;
+    let credit = 0;
+    let status = "open";
+    let lastProfitIso = trade.last_profit_at;
+
+    if (trade.trade_type === "daily") {
+      if (!closeReached) continue;
+      credit = money(amount + amount * rate);
+      status = "won";
+      lastProfitIso = trade.closes_at;
+    } else {
+      const effectiveEnd = Math.min(now, closesAt);
+      const elapsedDays = Math.floor((effectiveEnd - lastProfitAt) / 86400000);
+      const profit = money(amount * rate * Math.max(0, elapsedDays));
+      credit = closeReached ? money(profit + amount) : profit;
+      status = closeReached ? "won" : "open";
+      lastProfitIso =
+        elapsedDays > 0
+          ? new Date(lastProfitAt + elapsedDays * 86400000).toISOString()
+          : trade.last_profit_at;
+    }
+
+    if (credit <= 0 && status === "open") continue;
+
+    const { data: wallet } = await supabaseAdmin
+      .from("wallets")
+      .select("balance,total_earned")
+      .eq("user_id", trade.user_id)
+      .maybeSingle();
+    if (!wallet) continue;
+
+    const profitOnly = trade.trade_type === "daily" ? money(amount * rate) : Math.max(0, credit - (closeReached ? amount : 0));
+    await supabaseAdmin
+      .from("wallets")
+      .update({
+        balance: money(Number(wallet.balance) + credit),
+        total_earned: money(Number(wallet.total_earned ?? 0) + profitOnly),
+      })
+      .eq("user_id", trade.user_id);
+    await supabaseAdmin
+      .from("copy_trades")
+      .update({
+        status,
+        last_profit_at: lastProfitIso,
+        total_profit_paid: money(Number(trade.total_profit_paid ?? 0) + profitOnly),
+      })
+      .eq("id", trade.id);
+    await supabaseAdmin.from("transactions").insert({
+      user_id: trade.user_id,
+      kind: "copy_trade_profit",
+      amount: credit,
+      description:
+        status === "won"
+          ? `Closed ${getCopyTradeLabel(trade.trade_type)}`
+          : `Daily profit from ${getCopyTradeLabel(trade.trade_type)}`,
+      ref_id: trade.id,
+    });
+  }
 }
 
 export function getPackagePayoutMode(pkg: any): PackagePayoutMode {
@@ -143,7 +235,9 @@ export const getDashboard = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
-    const [wallet, profile, activePkgs, recentTxns, refCount] = await Promise.all([
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await settleCopyTrades(supabaseAdmin, userId);
+    const [wallet, profile, activePkgs, activeTrades, recentTxns, refCount] = await Promise.all([
       supabase.from("wallets").select("*").eq("user_id", userId).maybeSingle(),
       supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
       supabase
@@ -152,6 +246,12 @@ export const getDashboard = createServerFn({ method: "GET" })
         .eq("user_id", userId)
         .eq("status", "active")
         .order("purchased_at", { ascending: false }),
+      supabase
+        .from("copy_trades")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("status", "open")
+        .order("opened_at", { ascending: false }),
       supabase
         .from("transactions")
         .select("*")
@@ -176,8 +276,153 @@ export const getDashboard = createServerFn({ method: "GET" })
       },
       profile: profile.data,
       activePackages: withPending,
+      activeTrades: activeTrades.data ?? [],
       recentTransactions: recentTxns.data ?? [],
       referralCount: refCount.count ?? 0,
+    };
+  });
+
+export const getCopyTradingData = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await settleCopyTrades(supabaseAdmin, userId);
+    const [wallet, trades] = await Promise.all([
+      supabase.from("wallets").select("*").eq("user_id", userId).maybeSingle(),
+      supabase
+        .from("copy_trades")
+        .select("*")
+        .eq("user_id", userId)
+        .order("opened_at", { ascending: false })
+        .limit(50),
+    ]);
+    return { wallet: wallet.data, trades: trades.data ?? [], profitRate: COPY_TRADE_PROFIT_RATE };
+  });
+
+export const getMarketData = createServerFn({ method: "GET" }).handler(async () => {
+  const symbols = [
+    { symbol: "AAPL.US", label: "AAPL", name: "Apple Inc." },
+    { symbol: "TSLA.US", label: "TSLA", name: "Tesla Inc." },
+    { symbol: "NVDA.US", label: "NVDA", name: "NVIDIA Corp." },
+    { symbol: "^NDQ", label: "Nasdaq", name: "Nasdaq" },
+    { symbol: "^DJI", label: "Dow Jones", name: "Dow Jones" },
+    { symbol: "^SPX", label: "S&P 500", name: "S&P 500" },
+  ];
+
+  const quoteUrl = `https://stooq.com/q/l/?s=${symbols.map((s) => s.symbol).join("+")}&f=sd2t2ohlcv&h&e=csv`;
+  let markets = symbols.map((s) => ({ ...s, price: 0, change: 0, open: 0, high: 0, low: 0 }));
+  try {
+    const res = await fetch(quoteUrl);
+    const csv = await res.text();
+    const rows = csv.trim().split(/\r?\n/).slice(1);
+    markets = rows.map((row, index) => {
+      const [symbol, date, time, open, high, low, close] = row.split(",");
+      const meta = symbols.find((s) => s.symbol.toLowerCase() === symbol.toLowerCase()) ?? symbols[index];
+      const openValue = Number(open);
+      const price = Number(close);
+      return {
+        ...meta,
+        time: `${date} ${time}`,
+        price,
+        open: openValue,
+        high: Number(high),
+        low: Number(low),
+        change: openValue > 0 ? ((price - openValue) / openValue) * 100 : 0,
+      };
+    });
+  } catch {
+    // The UI falls back to zeroed quotes if the free source is unavailable.
+  }
+
+  let news: Array<{ title: string; link: string; pubDate: string }> = [];
+  try {
+    const res = await fetch("https://feeds.finance.yahoo.com/rss/2.0/headline?s=AAPL,TSLA,NVDA&region=US&lang=en-US");
+    const xml = await res.text();
+    news = [...xml.matchAll(/<item>[\s\S]*?<title><!\[CDATA\[(.*?)\]\]><\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?<pubDate>(.*?)<\/pubDate>[\s\S]*?<\/item>/g)]
+      .slice(0, 8)
+      .map((m) => ({ title: m[1], link: m[2], pubDate: m[3] }));
+  } catch {
+    news = [];
+  }
+
+  return { markets, news };
+});
+
+export const applyCopyTrade = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { code: string; amount: number; trade_type: CopyTradeType }) =>
+    z
+      .object({
+        code: z.string().min(3).max(32),
+        amount: z.number().min(1).max(1_000_000),
+        trade_type: z.enum(["daily", "locked7", "locked30"]),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { userId } = context;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await settleCopyTrades(supabaseAdmin, userId);
+    const code = data.code.trim().toUpperCase();
+    const { data: wallet } = await supabaseAdmin
+      .from("wallets")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!wallet || Number(wallet.balance) < data.amount) throw new Error("Insufficient balance");
+
+    const { data: signal } = await supabaseAdmin
+      .from("copy_trade_signals")
+      .select("*")
+      .eq("code", code)
+      .eq("trade_type", data.trade_type)
+      .eq("active", true)
+      .lte("valid_from", new Date().toISOString())
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+
+    await supabaseAdmin
+      .from("wallets")
+      .update({ balance: money(Number(wallet.balance) - data.amount) })
+      .eq("user_id", userId);
+
+    const closesAt = new Date(Date.now() + getCopyTradeDurationMs(data.trade_type)).toISOString();
+    const { data: trade, error } = await supabaseAdmin
+      .from("copy_trades")
+      .insert({
+        user_id: userId,
+        signal_id: signal?.id ?? null,
+        code_entered: code,
+        trade_type: data.trade_type,
+        amount: data.amount,
+        profit_rate: COPY_TRADE_PROFIT_RATE,
+        closes_at: closesAt,
+        status: signal ? "open" : "lost",
+      })
+      .select()
+      .single();
+    if (error) throw error;
+
+    await supabaseAdmin.from("transactions").insert({
+      user_id: userId,
+      kind: signal ? "copy_trade_open" : "copy_trade_loss",
+      amount: -Number(data.amount),
+      description: signal
+        ? `Opened ${getCopyTradeLabel(data.trade_type)}`
+        : `Lost copy trade - invalid ${getCopyTradeLabel(data.trade_type)} code`,
+      ref_id: trade.id,
+    });
+
+    if (!signal) {
+      return { ok: false, status: "lost", message: "Signal code did not match. Trade lost." };
+    }
+
+    return {
+      ok: true,
+      status: "open",
+      closes_at: closesAt,
+      expected_profit: money(Number(data.amount) * COPY_TRADE_PROFIT_RATE),
     };
   });
 
@@ -212,13 +457,14 @@ export const getWalletData = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await settleCopyTrades(supabaseAdmin, userId);
     await expireStalePendingWithdrawals(supabaseAdmin);
     try {
       await reconcilePendingWalletActivity(supabaseAdmin, userId);
     } catch (e) {
       console.error("reconcilePendingWalletActivity err", e);
     }
-    const [wallet, deposits, withdrawals, txns, eligiblePackages] = await Promise.all([
+    const [wallet, deposits, withdrawals, txns] = await Promise.all([
       supabase.from("wallets").select("*").eq("user_id", userId).maybeSingle(),
       supabase
         .from("deposits")
@@ -238,12 +484,6 @@ export const getWalletData = createServerFn({ method: "GET" })
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(30),
-      supabase
-        .from("user_packages")
-        .select("id,status")
-        .eq("user_id", userId)
-        .in("status", ["active", "completed"])
-        .limit(1),
     ]);
     const activity = buildWalletActivityItems(
       deposits.data ?? [],
@@ -255,12 +495,12 @@ export const getWalletData = createServerFn({ method: "GET" })
       deposits: deposits.data ?? [],
       withdrawals: withdrawals.data ?? [],
       transactions: txns.data ?? [],
-      canWithdraw: (eligiblePackages.data ?? []).length > 0,
+      canWithdraw: true,
       activity,
     };
   });
 
-export const WITHDRAWAL_FEE_RATE = 0.05;
+export const WITHDRAWAL_FEE_RATE = 0.2;
 const STALE_WITHDRAWAL_HOURS = 24;
 
 async function expireStalePendingWithdrawals(supabaseAdmin: any) {
@@ -319,19 +559,6 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
         "Withdrawals are temporarily paused by treasury controls. Please try again later.",
       );
     }
-    const { data: eligiblePackage, error: pkgErr } = await supabaseAdmin
-      .from("user_packages")
-      .select("id,status")
-      .eq("user_id", userId)
-      .in("status", ["active", "completed"])
-      .limit(1)
-      .maybeSingle();
-    if (pkgErr) throw pkgErr;
-    if (!eligiblePackage) {
-      throw new Error(
-        "Buy a package before withdrawing. Active or completed packages unlock withdrawals.",
-      );
-    }
     const fee = Math.round(Number(data.amount) * WITHDRAWAL_FEE_RATE * 100) / 100;
     const net = Math.round((Number(data.amount) - fee) * 100) / 100;
 
@@ -341,6 +568,7 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
         user_id: userId,
         amount: data.amount,
         fee,
+        fee_rate: WITHDRAWAL_FEE_RATE,
         net_amount: net,
         mpesa_phone: prof.phone,
         status: "pending",

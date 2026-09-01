@@ -5,11 +5,10 @@ import {
   ArrowUpFromLine,
   Network,
   MessageSquare,
-  Package,
+  SlidersHorizontal,
   LogOut,
   Coins,
   Gift,
-  Sparkles,
   Landmark,
   Gauge,
 } from "lucide-react";
@@ -24,10 +23,9 @@ const items = [
   { to: "/admin/deposits", label: "Deposits", icon: ArrowDownToLine },
   { to: "/admin/withdrawals", label: "Withdrawals", icon: ArrowUpFromLine },
   { to: "/admin/redpackets", label: "Red Packets", icon: Gift },
-  { to: "/admin/spins", label: "Spins", icon: Sparkles },
   { to: "/admin/teams", label: "Teams", icon: Network },
   { to: "/admin/support", label: "Support", icon: MessageSquare },
-  { to: "/admin/packages", label: "Packages", icon: Package },
+  { to: "/admin/packages", label: "Copy Trading", icon: SlidersHorizontal },
 ] as const;
 
 export function AdminShell({ children, title }: { children: ReactNode; title: string }) {

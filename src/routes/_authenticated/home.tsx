@@ -33,9 +33,9 @@ function HomePage() {
   const qc = useQueryClient();
 
   const wallet = data?.wallet;
-  const activeCount = data?.activePackages.length ?? 0;
-  const dailyTotal = (data?.activePackages ?? []).reduce(
-    (s, p: any) => s + Number(p.packages?.daily_payout ?? 0),
+  const activeCount = data?.activeTrades.length ?? 0;
+  const activeCapital = (data?.activeTrades ?? []).reduce(
+    (s, trade: any) => s + Number(trade.amount ?? 0),
     0,
   );
   const isAdmin = prof?.isAdmin ?? false;
@@ -46,7 +46,7 @@ function HomePage() {
 
   return (
     <ClientShell
-      title={`Hi, ${data?.profile?.full_name?.split(" ")[0] ?? "Miner"}`}
+      title={`Hi, ${data?.profile?.full_name?.split(" ")[0] ?? "Trader"}`}
       onLogoClick={handleLogoClick}
     >
       <div className="glass-card rounded-2xl p-5">
@@ -78,77 +78,53 @@ function HomePage() {
       </div>
 
       <div className="mt-4 grid grid-cols-3 gap-3">
-        <StatCard icon={Sparkles} label="Active pkgs" value={String(activeCount)} />
-        <StatCard icon={TrendingUp} label="Daily" value={fmt(dailyTotal)} />
+        <StatCard icon={Sparkles} label="Open trades" value={String(activeCount)} />
+        <StatCard icon={TrendingUp} label="Capital" value={fmt(activeCapital)} />
         <StatCard icon={Users} label="Referrals" value={String(data?.referralCount ?? 0)} />
       </div>
 
       <Section
-        title="Active packages"
+        title="Active copy trades"
         action={
           <Link to="/trade/mine" className="text-xs text-primary">
-            Buy more
+            Copy trade
           </Link>
         }
       >
-        {(data?.activePackages ?? []).length === 0 ? (
+        {(data?.activeTrades ?? []).length === 0 ? (
           <EmptyState
-            title="No active packages"
-            body="Head to Trade to buy your first mining package."
+            title="No open copy trades"
+            body="Use a valid signal code to start a copy trade."
             action={
               <Link
                 to="/trade/mine"
                 className="rounded-lg gradient-gold px-4 py-2 text-xs font-semibold"
               >
-                Browse packages
+                Open Copy Trading
               </Link>
             }
           />
         ) : (
           <div className="space-y-2">
-            {(data?.activePackages ?? []).map((p: any) => {
-              const daysLeft = Math.max(
+            {(data?.activeTrades ?? []).map((trade: any) => {
+              const minutesLeft = Math.max(
                 0,
-                Math.ceil((new Date(p.expires_at).getTime() - Date.now()) / 86400000),
+                Math.ceil((new Date(trade.closes_at).getTime() - Date.now()) / 60000),
               );
-              const pending = p.pending ?? {
-                amount: 0,
-                days: 0,
-                nextBoundaryIso: null,
-                mode: "daily",
-              };
-              const canClaim = pending.amount > 0;
-              const locked = pending.mode === "locked";
               return (
-                <button
-                  key={p.id}
-                  onClick={() => setSelectedPkg(p)}
-                  className="glass-card w-full rounded-xl p-4 text-left transition hover:ring-2 hover:ring-primary/50"
-                >
+                <div key={trade.id} className="glass-card w-full rounded-xl p-4 text-left">
                   <div className="flex items-center justify-between">
-                    <div className="font-semibold">{p.packages?.name}</div>
-                    <div
-                      className={`rounded-full px-2 py-0.5 text-xs ${canClaim ? "bg-success/20 text-success" : "bg-primary/15 text-primary"}`}
-                    >
-                      {canClaim
-                        ? `Claim ${fmt(pending.amount)}`
-                        : locked
-                          ? `${daysLeft}d lock`
-                          : `${daysLeft}d left`}
+                    <div className="font-semibold capitalize">
+                      {String(trade.trade_type).replace("locked", "locked ")}
+                    </div>
+                    <div className="rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary">
+                      {minutesLeft < 1440 ? `${minutesLeft}m left` : `${Math.ceil(minutesLeft / 1440)}d left`}
                     </div>
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    Paid out: {fmt(p.total_paid_out)} -{" "}
-                    {locked ? "Locked maturity" : `Daily ${fmt(p.packages?.daily_payout)}`}
+                    Capital: {fmt(trade.amount)} - Profit paid: {fmt(trade.total_profit_paid)}
                   </div>
-                  {pending.amount > 0 && (
-                    <div className="mt-1 text-[11px] text-success">
-                      {locked
-                        ? "Maturity ready - tap to claim"
-                        : `${pending.days} day${pending.days > 1 ? "s" : ""} ready - tap to claim`}
-                    </div>
-                  )}
-                </button>
+                </div>
               );
             })}
           </div>

@@ -136,11 +136,9 @@ function WalletPage() {
             <Button onClick={() => withdraw.mutate()} disabled={withdraw.isPending || !wdAmt || !phone || !data?.canWithdraw} className="w-full" variant="secondary">
               {withdraw.isPending ? "Requesting..." : "Request withdrawal"}
             </Button>
-            {!data?.canWithdraw ? (
-              <p className="text-[11px] text-warning">Buy a package first. Active or completed packages unlock withdrawals.</p>
-            ) : (
-              <p className="text-[11px] text-muted-foreground">Withdrawals are submitted to M-Pesa directly and should reach your account shortly.</p>
-            )}
+            <p className="text-[11px] text-muted-foreground">
+              A 20% withdrawal charge is deducted for gas fees, transaction fees, and tax.
+            </p>
           </div>
         </TabsContent>
       </Tabs>

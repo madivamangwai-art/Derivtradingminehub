@@ -3,6 +3,21 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { getPackageMaturityReturnRate, getPackagePayoutMode } from "@/lib/app.functions";
 
+type CopyTradeType = "daily" | "locked7" | "locked30";
+
+const COPY_TRADE_PROFIT_RATE = 0.016;
+
+function generateSignalCode(type: CopyTradeType) {
+  const prefix = type === "daily" ? "DT" : type === "locked7" ? "L7" : "L30";
+  return `${prefix}${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+}
+
+function getSignalDurationMs(type: CopyTradeType) {
+  if (type === "daily") return 30 * 60 * 1000;
+  if (type === "locked7") return 7 * 24 * 3600 * 1000;
+  return 30 * 24 * 3600 * 1000;
+}
+
 async function requireAdmin(userId: string) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data } = await supabaseAdmin
@@ -284,6 +299,94 @@ export const adminListPackagePurchases = createServerFn({ method: "GET" })
     });
   });
 
+export const adminGetCopyTrading = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const admin = await requireAdmin(context.userId);
+    const [signalsRes, tradesRes] = await Promise.all([
+      admin
+        .from("copy_trade_signals")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(100),
+      admin
+        .from("copy_trades")
+        .select("*")
+        .order("opened_at", { ascending: false })
+        .limit(500),
+    ]);
+    const trades = tradesRes.data ?? [];
+    const userIds = [...new Set(trades.map((t: any) => t.user_id))];
+    const { data: profiles } = userIds.length
+      ? await admin.from("profiles").select("id,full_name,email,phone").in("id", userIds)
+      : { data: [] };
+    const profileMap = new Map((profiles ?? []).map((p) => [p.id, p]));
+    const openDailyOutflow = trades
+      .filter((t: any) => t.status === "open")
+      .reduce((sum: number, t: any) => sum + Number(t.amount ?? 0) * Number(t.profit_rate ?? 0), 0);
+
+    return {
+      signals: signalsRes.data ?? [],
+      trades: trades.map((trade: any) => ({
+        ...trade,
+        profile: profileMap.get(trade.user_id) ?? null,
+      })),
+      summary: {
+        openTrades: trades.filter((t: any) => t.status === "open").length,
+        wonTrades: trades.filter((t: any) => t.status === "won").length,
+        lostTrades: trades.filter((t: any) => t.status === "lost").length,
+        openDailyOutflow,
+      },
+    };
+  });
+
+export const adminGenerateCopyTradeSignal = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { trade_type: CopyTradeType }) =>
+    z.object({ trade_type: z.enum(["daily", "locked7", "locked30"]) }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const admin = await requireAdmin(context.userId);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + getSignalDurationMs(data.trade_type));
+
+    if (data.trade_type === "daily") {
+      const start = new Date(now);
+      start.setHours(0, 0, 0, 0);
+      const { count } = await admin
+        .from("copy_trade_signals")
+        .select("id", { count: "exact", head: true })
+        .eq("trade_type", "daily")
+        .gte("created_at", start.toISOString());
+      if ((count ?? 0) >= 4) throw new Error("Daily copy trade codes are limited to 4 per day.");
+    } else {
+      const { data: active } = await admin
+        .from("copy_trade_signals")
+        .select("id")
+        .eq("trade_type", data.trade_type)
+        .eq("active", true)
+        .gt("expires_at", now.toISOString())
+        .limit(1)
+        .maybeSingle();
+      if (active) throw new Error("This locked signal already has an active code.");
+    }
+
+    const { data: signal, error } = await admin
+      .from("copy_trade_signals")
+      .insert({
+        code: generateSignalCode(data.trade_type),
+        trade_type: data.trade_type,
+        profit_rate: COPY_TRADE_PROFIT_RATE,
+        valid_from: now.toISOString(),
+        expires_at: expiresAt.toISOString(),
+        created_by: context.userId,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return signal;
+  });
+
 export const adminUpsertPackage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(
@@ -460,10 +563,10 @@ export const adminGetAccounts = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const admin = await requireAdmin(context.userId);
-    const [wallets, withdrawals, tickets, deposits, txns30] = await Promise.all([
+    const [wallets, withdrawals, redPackets, deposits, txns30] = await Promise.all([
       admin.from("wallets").select("balance,total_deposited,total_withdrawn,total_earned"),
       admin.from("withdrawals").select("amount,fee,net_amount,status,created_at"),
-      admin.from("spin_tickets").select("value_kes,prize_amount,used_at,created_at"),
+      admin.from("red_packets").select("total_amount,claimed_count,max_claims,ticket_value,status,created_at"),
       admin.from("deposits").select("amount,status,created_at"),
       admin
         .from("transactions")
@@ -493,12 +596,14 @@ export const adminGetAccounts = createServerFn({ method: "GET" })
         0,
       );
 
-    const tks = tickets.data ?? [];
-    const spinSpent = tks.reduce((s: number, t: any) => s + Number(t.value_kes ?? 0), 0);
-    const spinPaid = tks
-      .filter((t: any) => t.used_at)
-      .reduce((s: number, t: any) => s + Number(t.prize_amount ?? 0), 0);
-    const spinRetained = spinSpent - spinPaid;
+    const packetRows = redPackets.data ?? [];
+    const redPacketFunded = packetRows.reduce((s: number, p: any) => s + Number(p.total_amount ?? 0), 0);
+    const redPacketClaimed = packetRows.reduce(
+      (s: number, p: any) =>
+        s + Number(p.claimed_count ?? 0) * Math.floor(Number(p.total_amount ?? 0) / Math.max(1, Number(p.max_claims ?? 1))),
+      0,
+    );
+    const redPacketUnclaimed = Math.max(0, redPacketFunded - redPacketClaimed);
 
     const successDeposits = (deposits.data ?? [])
       .filter((d: any) => d.status === "success")
@@ -517,8 +622,8 @@ export const adminGetAccounts = createServerFn({ method: "GET" })
     const netDailyOutflow = Math.max(0, avgDailyWithdrawal - avgDailyDeposit);
 
     // House metrics
-    // House balance = deposits + spin retained + fees - withdrawals paid to users
-    const houseBalance = totalDeposited + spinRetained + feesCollectedPaid - totalWithdrawn;
+    // House balance = deposits + unclaimed red packets + fees - withdrawals paid to users
+    const houseBalance = totalDeposited + redPacketUnclaimed + feesCollectedPaid - totalWithdrawn;
     // Runway if all clients requested full withdrawal at net-daily-outflow pace
     const runwayDays = netDailyOutflow > 0 ? houseBalance / netDailyOutflow : null;
     // Coverage ratio: house cash vs client liability
@@ -548,8 +653,9 @@ export const adminGetAccounts = createServerFn({ method: "GET" })
         successDeposits,
         paidOutNet,
       },
-      fees: { collected: feesCollectedPaid, pending: feesPending, rate: 0.05 },
-      spin: { spent: spinSpent, paidOut: spinPaid, retained: spinRetained },
+      fees: { collected: feesCollectedPaid, pending: feesPending, rate: 0.2 },
+      redPackets: { funded: redPacketFunded, claimed: redPacketClaimed, unclaimed: redPacketUnclaimed },
+      spin: { spent: 0, paidOut: 0, retained: 0 },
       house: { balance: houseBalance, runwayDays, coverageRatio },
       window30d: {
         deposits: dep30,
