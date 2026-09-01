@@ -87,7 +87,13 @@ function CopyTradingAdminPage() {
         });
         avatarUrl = uploaded.avatar_url;
       }
-      return upsertAnalystFn({ data: { ...analystForm, avatar_url: avatarUrl } });
+      return upsertAnalystFn({
+        data: {
+          ...analystForm,
+          avatar_url: avatarUrl,
+          commission_rate: Number(analystForm.commission_rate) / 100,
+        },
+      });
     },
     onSuccess: () => {
       toast.success("Analyst saved");
@@ -153,7 +159,7 @@ function CopyTradingAdminPage() {
                       ...analyst,
                       one_day_return_rate: Number(analyst.one_day_return_rate),
                       seven_day_roi: Number(analyst.seven_day_roi),
-                      commission_rate: Number(analyst.commission_rate),
+                      commission_rate: Number(analyst.commission_rate) * 100,
                       min_copy_amount: Number(analyst.min_copy_amount),
                       max_copy_amount: analyst.max_copy_amount == null ? null : Number(analyst.max_copy_amount),
                     });
@@ -194,7 +200,7 @@ function CopyTradingAdminPage() {
             <div className="grid grid-cols-2 gap-2">
               <NumberField label="1-day return" value={analystForm.one_day_return_rate} step="0.01" onChange={(v) => setAnalystForm({ ...analystForm, one_day_return_rate: v })} />
               <NumberField label="7-day ROI" value={analystForm.seven_day_roi} step="0.01" onChange={(v) => setAnalystForm({ ...analystForm, seven_day_roi: v })} />
-              <NumberField label="Commission" value={analystForm.commission_rate} step="0.01" onChange={(v) => setAnalystForm({ ...analystForm, commission_rate: v })} />
+              <NumberField label="Commission (%)" value={analystForm.commission_rate} step="0.01" onChange={(v) => setAnalystForm({ ...analystForm, commission_rate: v })} />
               <NumberField label="Min amount" value={analystForm.min_copy_amount} onChange={(v) => setAnalystForm({ ...analystForm, min_copy_amount: v })} />
               <NumberField label="Max amount" value={analystForm.max_copy_amount ?? 0} onChange={(v) => setAnalystForm({ ...analystForm, max_copy_amount: v || null })} />
               <NumberField label="Sort order" value={analystForm.sort_order} onChange={(v) => setAnalystForm({ ...analystForm, sort_order: v })} />

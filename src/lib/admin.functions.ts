@@ -52,6 +52,10 @@ function generateSignalCode(type: CopyTradeType) {
   return `${prefix}${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
+function normalizeRate(value: number) {
+  return value > 1 ? value / 100 : value;
+}
+
 function getSignalDurationMs(type: CopyTradeType) {
   if (type === "daily") return 30 * 60 * 1000;
   if (type === "locked7") return 7 * 24 * 3600 * 1000;
@@ -395,7 +399,7 @@ export const adminUpsertCopyTradeAnalyst = createServerFn({ method: "POST" })
         one_day_return_rate: z.number().min(-1).max(10),
         seven_day_roi: z.number().min(-1).max(10),
         follow_period_days: z.number().int().positive().nullable().optional(),
-        commission_rate: z.number().min(0).max(1),
+        commission_rate: z.number().min(0).max(100),
         min_copy_amount: z.number().min(0),
         max_copy_amount: z.number().min(0).nullable().optional(),
         active: z.boolean(),
@@ -408,6 +412,7 @@ export const adminUpsertCopyTradeAnalyst = createServerFn({ method: "POST" })
     const payload = {
       ...data,
       avatar_url: data.avatar_url || null,
+      commission_rate: normalizeRate(data.commission_rate),
       max_copy_amount: data.max_copy_amount || null,
       updated_at: new Date().toISOString(),
     };
