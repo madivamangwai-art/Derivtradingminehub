@@ -25,6 +25,74 @@ function money(amount: number) {
 const COPY_TRADE_PROFIT_RATE = 0.016;
 const DAILY_COPY_TRADE_MINUTES = 30;
 const DIRECT_TRADE_PROFIT_REFERRAL_RATE = 0.03;
+const IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+const KYC_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"] as const;
+
+async function ensureAppStorageBuckets(supabaseAdmin: any) {
+  const buckets = [
+    {
+      id: "kyc-documents",
+      public: false,
+      fileSizeLimit: 10 * 1024 * 1024,
+      allowedMimeTypes: KYC_MIME_TYPES,
+    },
+    {
+      id: "profile-avatars",
+      public: true,
+      fileSizeLimit: 5 * 1024 * 1024,
+      allowedMimeTypes: IMAGE_MIME_TYPES,
+    },
+  ];
+
+  for (const bucket of buckets) {
+    const { error } = await supabaseAdmin.storage.createBucket(bucket.id, {
+      public: bucket.public,
+      fileSizeLimit: bucket.fileSizeLimit,
+      allowedMimeTypes: [...bucket.allowedMimeTypes],
+    });
+    if (error && !/already exists|duplicate/i.test(error.message ?? "")) {
+      throw error;
+    }
+    if (error) {
+      await supabaseAdmin.storage.updateBucket(bucket.id, {
+        public: bucket.public,
+        fileSizeLimit: bucket.fileSizeLimit,
+        allowedMimeTypes: [...bucket.allowedMimeTypes],
+      });
+    }
+  }
+}
+
+function storageExt(fileName: string, mimeType: string) {
+  const fromName = fileName.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (fromName) return fromName;
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/webp") return "webp";
+  if (mimeType === "application/pdf") return "pdf";
+  return "jpg";
+}
+
+async function uploadStorageBase64({
+  supabaseAdmin,
+  bucket,
+  path,
+  contentBase64,
+  contentType,
+}: {
+  supabaseAdmin: any;
+  bucket: string;
+  path: string;
+  contentBase64: string;
+  contentType: string;
+}) {
+  const { Buffer } = await import("node:buffer");
+  const body = Buffer.from(contentBase64, "base64");
+  const { error } = await supabaseAdmin.storage.from(bucket).upload(path, body, {
+    contentType,
+    upsert: true,
+  });
+  if (error) throw error;
+}
 
 function decodeXml(value: string) {
   return value
@@ -74,6 +142,27 @@ async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
     let credit = 0;
     let status = "open";
     let lastProfitIso = trade.last_profit_at;
+    const hasWinningSignal = !!trade.signal_id;
+
+    if (!hasWinningSignal) {
+      if (!closeReached) continue;
+
+      await supabaseAdmin
+        .from("copy_trades")
+        .update({
+          status: "lost",
+          last_profit_at: trade.closes_at,
+        })
+        .eq("id", trade.id);
+      await supabaseAdmin.from("transactions").insert({
+        user_id: trade.user_id,
+        kind: "copy_trade_loss",
+        amount: 0,
+        description: `Closed ${getCopyTradeLabel(trade.trade_type)} as a loss`,
+        ref_id: trade.id,
+      });
+      continue;
+    }
 
     if (trade.trade_type === "daily") {
       if (!closeReached) continue;
@@ -568,12 +657,19 @@ export const getMarketData = createServerFn({ method: "GET" }).handler(async () 
 
 export const applyCopyTrade = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { code: string; amount: number; trade_type: CopyTradeType }) =>
+  .inputValidator(
+    (d: {
+      code?: string;
+      amount: number;
+      trade_type: CopyTradeType;
+      source?: "signal" | "analyst";
+    }) =>
     z
       .object({
-        code: z.string().min(3).max(32),
+        code: z.string().max(32).optional().default(""),
         amount: z.number().min(1).max(1_000_000),
         trade_type: z.enum(["daily", "locked7", "locked30"]),
+        source: z.enum(["signal", "analyst"]).optional().default("signal"),
       })
       .parse(d),
   )
@@ -591,7 +687,11 @@ export const applyCopyTrade = createServerFn({ method: "POST" })
     if (kyc?.status !== "approved") {
       throw new Error("KYC verification must be approved before you can trade.");
     }
-    const code = data.code.trim().toUpperCase();
+    const source = data.source ?? "signal";
+    const code = (data.code ?? "").trim().toUpperCase();
+    if (source === "signal" && code.length < 3) {
+      throw new Error("Enter a signal code before applying.");
+    }
     const { data: wallet } = await supabaseAdmin
       .from("wallets")
       .select("*")
@@ -599,15 +699,18 @@ export const applyCopyTrade = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!wallet || Number(wallet.balance) < data.amount) throw new Error("Insufficient balance");
 
-    const { data: signal } = await supabaseAdmin
-      .from("copy_trade_signals")
-      .select("*")
-      .eq("code", code)
-      .eq("trade_type", data.trade_type)
-      .eq("active", true)
-      .lte("valid_from", new Date().toISOString())
-      .gt("expires_at", new Date().toISOString())
-      .maybeSingle();
+    const { data: signal } =
+      source === "signal"
+        ? await supabaseAdmin
+            .from("copy_trade_signals")
+            .select("*")
+            .eq("code", code)
+            .eq("trade_type", data.trade_type)
+            .eq("active", true)
+            .lte("valid_from", new Date().toISOString())
+            .gt("expires_at", new Date().toISOString())
+            .maybeSingle()
+        : { data: null };
 
     await supabaseAdmin
       .from("wallets")
@@ -625,7 +728,7 @@ export const applyCopyTrade = createServerFn({ method: "POST" })
         amount: data.amount,
         profit_rate: COPY_TRADE_PROFIT_RATE,
         closes_at: closesAt,
-        status: signal ? "open" : "lost",
+        status: "open",
       })
       .select()
       .single();
@@ -637,12 +740,24 @@ export const applyCopyTrade = createServerFn({ method: "POST" })
       amount: -Number(data.amount),
       description: signal
         ? `Opened ${getCopyTradeLabel(data.trade_type)}`
-        : `Lost copy trade - invalid ${getCopyTradeLabel(data.trade_type)} code`,
+        : source === "signal"
+          ? `Opened ${getCopyTradeLabel(data.trade_type)} with invalid signal code`
+          : `Opened analyst copy trade without a signal code`,
       ref_id: trade.id,
     });
 
     if (!signal) {
-      return { ok: false, status: "lost", message: "Signal code did not match. Trade lost." };
+      return {
+        ok: true,
+        status: "open",
+        closes_at: closesAt,
+        expected_profit: 0,
+        will_win: false,
+        message:
+          source === "signal"
+            ? "Trade opened. This signal code will settle as a loss after the cycle."
+            : "Analyst copy opened. No-code copies settle as a loss after the cycle.",
+      };
     }
 
     return {
@@ -650,6 +765,7 @@ export const applyCopyTrade = createServerFn({ method: "POST" })
       status: "open",
       closes_at: closesAt,
       expected_profit: money(Number(data.amount) * COPY_TRADE_PROFIT_RATE),
+      will_win: true,
     };
   });
 
@@ -1039,6 +1155,69 @@ export const updateProfile = createServerFn({ method: "POST" })
     const { error } = await supabase.from("profiles").update(data).eq("id", userId);
     if (error) throw error;
     return { ok: true };
+  });
+
+export const uploadProfileAvatar = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { file_name: string; mime_type: string; content_base64: string }) =>
+    z
+      .object({
+        file_name: z.string().min(1).max(160),
+        mime_type: z.enum(IMAGE_MIME_TYPES),
+        content_base64: z.string().min(20),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { userId } = context;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await ensureAppStorageBuckets(supabaseAdmin);
+    const ext = storageExt(data.file_name, data.mime_type);
+    const path = `${userId}/avatar-${Date.now()}.${ext}`;
+    await uploadStorageBase64({
+      supabaseAdmin,
+      bucket: "profile-avatars",
+      path,
+      contentBase64: data.content_base64,
+      contentType: data.mime_type,
+    });
+    const { data: publicUrl } = supabaseAdmin.storage.from("profile-avatars").getPublicUrl(path);
+    await supabaseAdmin.from("profiles").update({ avatar_url: publicUrl.publicUrl }).eq("id", userId);
+    return { ok: true, avatar_url: publicUrl.publicUrl };
+  });
+
+export const uploadKycDocument = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(
+    (d: {
+      file_name: string;
+      mime_type: string;
+      content_base64: string;
+      document_type: "id-front" | "id-back" | "selfie-holding-id";
+    }) =>
+      z
+        .object({
+          file_name: z.string().min(1).max(160),
+          mime_type: z.enum(KYC_MIME_TYPES),
+          content_base64: z.string().min(20),
+          document_type: z.enum(["id-front", "id-back", "selfie-holding-id"]),
+        })
+        .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { userId } = context;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await ensureAppStorageBuckets(supabaseAdmin);
+    const ext = storageExt(data.file_name, data.mime_type);
+    const path = `${userId}/${data.document_type}-${Date.now()}.${ext}`;
+    await uploadStorageBase64({
+      supabaseAdmin,
+      bucket: "kyc-documents",
+      path,
+      contentBase64: data.content_base64,
+      contentType: data.mime_type,
+    });
+    return { path };
   });
 
 export const getTransactions = getClientTransactions;

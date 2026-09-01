@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Copy, Pencil, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Copy, ImageUp, Pencil, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import {
   adminDeleteCopyTradeAnalyst,
   adminGenerateCopyTradeSignal,
   adminGetCopyTrading,
+  adminUploadCopyTradeAnalystAvatar,
   adminUpsertCopyTradeAnalyst,
 } from "@/lib/admin.functions";
 import { requireAdminRoute } from "@/lib/admin-route";
@@ -37,22 +38,61 @@ const emptyAnalyst = {
   sort_order: 0,
 };
 
+const imageMimeTypes = ["image/jpeg", "image/png", "image/webp"];
+
+function fileToBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      resolve(result.includes(",") ? result.split(",").pop()! : result);
+    };
+    reader.onerror = () => reject(new Error("Could not read file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function getImageMimeType(file: File) {
+  if (imageMimeTypes.includes(file.type)) return file.type;
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  return "image/jpeg";
+}
+
 function CopyTradingAdminPage() {
   const qc = useQueryClient();
   const copyTradingFn = useServerFn(adminGetCopyTrading);
   const generateSignalFn = useServerFn(adminGenerateCopyTradeSignal);
   const upsertAnalystFn = useServerFn(adminUpsertCopyTradeAnalyst);
+  const uploadAvatarFn = useServerFn(adminUploadCopyTradeAnalystAvatar);
   const deleteAnalystFn = useServerFn(adminDeleteCopyTradeAnalyst);
   const { data } = useQuery({ queryKey: ["admin-copy-trading"], queryFn: () => copyTradingFn() });
   const [analystForm, setAnalystForm] = useState<any>(emptyAnalyst);
+  const [analystAvatarFile, setAnalystAvatarFile] = useState<File | null>(null);
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["admin-copy-trading"] });
 
   const saveAnalyst = useMutation({
-    mutationFn: () => upsertAnalystFn({ data: analystForm }),
+    mutationFn: async () => {
+      let avatarUrl = analystForm.avatar_url ?? "";
+      if (analystAvatarFile) {
+        const content = await fileToBase64(analystAvatarFile);
+        const uploaded = await uploadAvatarFn({
+          data: {
+            file_name: analystAvatarFile.name,
+            mime_type: getImageMimeType(analystAvatarFile),
+            content_base64: content,
+          },
+        });
+        avatarUrl = uploaded.avatar_url;
+      }
+      return upsertAnalystFn({ data: { ...analystForm, avatar_url: avatarUrl } });
+    },
     onSuccess: () => {
       toast.success("Analyst saved");
       setAnalystForm(emptyAnalyst);
+      setAnalystAvatarFile(null);
       refresh();
     },
     onError: (e: any) => toast.error(e.message ?? "Could not save analyst"),
@@ -63,6 +103,7 @@ function CopyTradingAdminPage() {
     onSuccess: () => {
       toast.success("Analyst deleted");
       setAnalystForm(emptyAnalyst);
+      setAnalystAvatarFile(null);
       refresh();
     },
     onError: (e: any) => toast.error(e.message ?? "Could not delete analyst"),
@@ -88,7 +129,10 @@ function CopyTradingAdminPage() {
               <h2 className="text-sm font-semibold">Analyst profiles</h2>
               <p className="text-xs text-muted-foreground">These are the profiles clients see on Copy Trading.</p>
             </div>
-            <Button size="sm" variant="secondary" onClick={() => setAnalystForm(emptyAnalyst)}>
+            <Button size="sm" variant="secondary" onClick={() => {
+              setAnalystForm(emptyAnalyst);
+              setAnalystAvatarFile(null);
+            }}>
               <Plus className="mr-1 h-4 w-4" /> New
             </Button>
           </div>
@@ -104,14 +148,17 @@ function CopyTradingAdminPage() {
                 <Metric label="1-day" value={`${Number(analyst.one_day_return_rate * 100).toFixed(0)}%`} />
                 <Metric label="7-day" value={`${Number(analyst.seven_day_roi * 100).toFixed(0)}%`} />
                 <div className="flex gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => setAnalystForm({
-                    ...analyst,
-                    one_day_return_rate: Number(analyst.one_day_return_rate),
-                    seven_day_roi: Number(analyst.seven_day_roi),
-                    commission_rate: Number(analyst.commission_rate),
-                    min_copy_amount: Number(analyst.min_copy_amount),
-                    max_copy_amount: analyst.max_copy_amount == null ? null : Number(analyst.max_copy_amount),
-                  })}>
+                  <Button size="sm" variant="secondary" onClick={() => {
+                    setAnalystForm({
+                      ...analyst,
+                      one_day_return_rate: Number(analyst.one_day_return_rate),
+                      seven_day_roi: Number(analyst.seven_day_roi),
+                      commission_rate: Number(analyst.commission_rate),
+                      min_copy_amount: Number(analyst.min_copy_amount),
+                      max_copy_amount: analyst.max_copy_amount == null ? null : Number(analyst.max_copy_amount),
+                    });
+                    setAnalystAvatarFile(null);
+                  }}>
                     <Pencil className="h-4 w-4" />
                   </Button>
                   <Button size="sm" variant="destructive" onClick={() => {
@@ -135,7 +182,11 @@ function CopyTradingAdminPage() {
               <Field label="Name" value={analystForm.name} onChange={(v) => setAnalystForm({ ...analystForm, name: v })} />
               <Field label="Title" value={analystForm.title} onChange={(v) => setAnalystForm({ ...analystForm, title: v })} />
             </div>
-            <Field label="Profile picture URL" value={analystForm.avatar_url ?? ""} onChange={(v) => setAnalystForm({ ...analystForm, avatar_url: v })} />
+            <AnalystAvatarField
+              currentUrl={analystForm.avatar_url ?? ""}
+              file={analystAvatarFile}
+              onChange={setAnalystAvatarFile}
+            />
             <div>
               <Label>Bio</Label>
               <Textarea value={analystForm.bio} onChange={(e) => setAnalystForm({ ...analystForm, bio: e.target.value })} />
@@ -153,7 +204,7 @@ function CopyTradingAdminPage() {
               Active
             </label>
             <Button onClick={() => saveAnalyst.mutate()} disabled={saveAnalyst.isPending} className="w-full gap-2 gradient-gold">
-              <Save className="h-4 w-4" /> {saveAnalyst.isPending ? "Saving..." : "Save analyst"}
+              <Save className="h-4 w-4" /> {saveAnalyst.isPending ? "Uploading..." : "Save analyst"}
             </Button>
           </div>
         </section>
@@ -241,6 +292,58 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
     <div>
       <Label>{label}</Label>
       <Input value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+}
+
+function AnalystAvatarField({
+  currentUrl,
+  file,
+  onChange,
+}: {
+  currentUrl: string;
+  file: File | null;
+  onChange: (file: File | null) => void;
+}) {
+  const [previewUrl, setPreviewUrl] = useState("");
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl("");
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const src = previewUrl || currentUrl;
+
+  return (
+    <div>
+      <Label>Profile picture</Label>
+      <div className="mt-1 flex items-center gap-3 rounded-xl border border-border bg-card p-3">
+        <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-muted-foreground">
+          {src ? <img src={src} alt="Analyst preview" className="h-full w-full object-cover" /> : "Photo"}
+        </div>
+        <div className="min-w-0 flex-1">
+          <Input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+          />
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            Upload JPG, PNG, or WebP. No link needed.
+          </div>
+        </div>
+        {file ? (
+          <Button type="button" size="icon" variant="secondary" onClick={() => onChange(null)} aria-label="Remove selected picture">
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        ) : (
+          <ImageUp className="h-4 w-4 text-muted-foreground" />
+        )}
+      </div>
     </div>
   );
 }

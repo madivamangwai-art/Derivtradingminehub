@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { toast } from "sonner";
 import {
   CheckCircle2,
@@ -11,6 +12,7 @@ import {
   IdCard,
   ImageUp,
   LockKeyhole,
+  ScanFace,
   RefreshCcw,
   ShieldAlert,
   Smartphone,
@@ -20,7 +22,13 @@ import { ClientShell } from "@/components/layout/client-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getMyProfile, submitKycVerification, updateProfile } from "@/lib/app.functions";
+import {
+  getMyProfile,
+  submitKycVerification,
+  updateProfile,
+  uploadKycDocument,
+  uploadProfileAvatar,
+} from "@/lib/app.functions";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/_authenticated/settings")({ component: SettingsPage });
@@ -30,10 +38,36 @@ type InstallPrompt = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
+const imageMimeTypes = ["image/jpeg", "image/png", "image/webp"];
+const kycMimeTypes = [...imageMimeTypes, "application/pdf"];
+
+function getUploadMimeType(file: File, allowed: string[]) {
+  if (allowed.includes(file.type)) return file.type;
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  if (ext === "pdf" && allowed.includes("application/pdf")) return "application/pdf";
+  return "image/jpeg";
+}
+
+function fileToBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      resolve(result.includes(",") ? result.split(",").pop()! : result);
+    };
+    reader.onerror = () => reject(new Error("Could not read file."));
+    reader.readAsDataURL(file);
+  });
+}
+
 function SettingsPage() {
   const profileFn = useServerFn(getMyProfile);
   const updateFn = useServerFn(updateProfile);
   const submitKycFn = useServerFn(submitKycVerification);
+  const uploadAvatarFn = useServerFn(uploadProfileAvatar);
+  const uploadKycFn = useServerFn(uploadKycDocument);
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ["profile"], queryFn: () => profileFn() });
   const [installPrompt, setInstallPrompt] = useState<InstallPrompt | null>(null);
@@ -64,16 +98,14 @@ function SettingsPage() {
   const saveAvatar = useMutation({
     mutationFn: async () => {
       if (!avatarFile) throw new Error("Choose a profile picture first.");
-      const user = (await supabase.auth.getUser()).data.user;
-      if (!user) throw new Error("Session expired.");
-      const ext = avatarFile.name.split(".").pop() || "jpg";
-      const path = `${user.id}/avatar-${Date.now()}.${ext}`;
-      const { error: uploadError } = await supabase.storage
-        .from("profile-avatars")
-        .upload(path, avatarFile, { upsert: true });
-      if (uploadError) throw uploadError;
-      const { data: publicUrl } = supabase.storage.from("profile-avatars").getPublicUrl(path);
-      await updateFn({ data: { avatar_url: publicUrl.publicUrl } });
+      const content = await fileToBase64(avatarFile);
+      await uploadAvatarFn({
+        data: {
+          file_name: avatarFile.name,
+          mime_type: getUploadMimeType(avatarFile, imageMimeTypes),
+          content_base64: content,
+        },
+      });
     },
     onSuccess: () => {
       toast.success("Profile picture updated");
@@ -90,12 +122,20 @@ function SettingsPage() {
       }
       const user = (await supabase.auth.getUser()).data.user;
       if (!user) throw new Error("Session expired.");
-      const uploadOne = async (file: File, name: string) => {
-        const ext = file.name.split(".").pop() || "jpg";
-        const path = `${user.id}/${name}-${Date.now()}.${ext}`;
-        const { error } = await supabase.storage.from("kyc-documents").upload(path, file);
-        if (error) throw error;
-        return path;
+      const uploadOne = async (
+        file: File,
+        documentType: "id-front" | "id-back" | "selfie-holding-id",
+      ) => {
+        const content = await fileToBase64(file);
+        const result = await uploadKycFn({
+          data: {
+            file_name: file.name,
+            mime_type: getUploadMimeType(file, kycMimeTypes),
+            content_base64: content,
+            document_type: documentType,
+          },
+        });
+        return result.path;
       };
       const [id_front_path, id_back_path, selfie_path] = await Promise.all([
         uploadOne(frontFile, "id-front"),
@@ -283,6 +323,7 @@ function SettingsPage() {
             </div>
           ) : (
             <div className="mt-4 space-y-3">
+              <KycSamples />
               <FileField label="ID front" onChange={setFrontFile} />
               <FileField label="ID back" onChange={setBackFile} />
               <FileField label="Selfie holding ID" onChange={setSelfieFile} />
@@ -336,6 +377,80 @@ function FileField({ label, onChange }: { label: string; onChange: (file: File |
         accept="image/*,application/pdf"
         onChange={(e) => onChange(e.target.files?.[0] ?? null)}
       />
+    </div>
+  );
+}
+
+function KycSamples() {
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      <KycSampleCard
+        title="ID front"
+        body="Face, name, and ID number visible."
+        preview={
+          <div className="relative h-full rounded-lg border border-border bg-background p-2">
+            <div className="mb-2 h-3 w-16 rounded bg-primary/40" />
+            <div className="grid grid-cols-[2rem_1fr] gap-2">
+              <div className="grid h-8 w-8 place-items-center rounded bg-muted">
+                <User className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="space-y-1.5">
+                <div className="h-1.5 rounded bg-foreground/50" />
+                <div className="h-1.5 w-4/5 rounded bg-muted-foreground/50" />
+                <div className="h-1.5 w-3/5 rounded bg-muted-foreground/40" />
+              </div>
+            </div>
+          </div>
+        }
+      />
+      <KycSampleCard
+        title="ID back"
+        body="Back side flat and readable."
+        preview={
+          <div className="h-full rounded-lg border border-border bg-background p-2">
+            <div className="mb-2 h-4 rounded bg-muted" />
+            <div className="space-y-1.5">
+              <div className="h-1.5 rounded bg-foreground/50" />
+              <div className="h-1.5 rounded bg-muted-foreground/50" />
+              <div className="h-1.5 w-4/5 rounded bg-muted-foreground/40" />
+            </div>
+            <div className="mt-2 h-5 rounded border border-dashed border-muted-foreground/50" />
+          </div>
+        }
+      />
+      <KycSampleCard
+        title="Selfie"
+        body="Your face and ID in one clear photo."
+        preview={
+          <div className="relative h-full rounded-lg border border-border bg-background p-2">
+            <div className="mx-auto grid h-9 w-9 place-items-center rounded-full bg-muted">
+              <ScanFace className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <div className="absolute bottom-2 right-2 h-7 w-10 rounded border border-border bg-card p-1">
+              <div className="mb-1 h-1 rounded bg-primary/40" />
+              <div className="h-1 rounded bg-muted-foreground/50" />
+            </div>
+          </div>
+        }
+      />
+    </div>
+  );
+}
+
+function KycSampleCard({
+  title,
+  body,
+  preview,
+}: {
+  title: string;
+  body: string;
+  preview: ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-2">
+      <div className="h-20">{preview}</div>
+      <div className="mt-2 text-[11px] font-semibold">{title}</div>
+      <div className="mt-0.5 text-[10px] leading-4 text-muted-foreground">{body}</div>
     </div>
   );
 }

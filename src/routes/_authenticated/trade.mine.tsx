@@ -75,6 +75,7 @@ function CopyTradingPage() {
       min_copy_amount: analyst.min_copy_amount,
       max_copy_amount: analyst.max_copy_amount,
       commission_rate: analyst.commission_rate,
+      source: "analyst" as const,
     }),
   );
   const manualSignal = {
@@ -88,6 +89,7 @@ function CopyTradingPage() {
     min_copy_amount: 1,
     max_copy_amount: null,
     commission_rate: 0,
+    source: "signal" as const,
   };
   const [selectedAnalyst, setSelectedAnalyst] = useState<any | null>(null);
   const [view, setView] = useState<"analysts" | "my" | "partners">("analysts");
@@ -96,6 +98,7 @@ function CopyTradingPage() {
   const [code, setCode] = useState("");
   const [amount, setAmount] = useState("");
   const selected = tradeTypes.find((item) => item.value === tradeType)!;
+  const isSignalTrade = selectedAnalyst?.source === "signal";
   const expectedProfit = Number(amount || 0) * Number(data?.profitRate ?? 0.016);
   const kycApproved = !!data?.kycApproved;
   const visibleAnalysts = analysts.filter((a: any) =>
@@ -109,10 +112,11 @@ function CopyTradingPage() {
           code: code.trim().toUpperCase(),
           amount: Number(amount),
           trade_type: tradeType,
+          source: selectedAnalyst?.source ?? "signal",
         },
       }),
     onSuccess: (result: any) => {
-      if (result.ok) toast.success("Copy trade opened");
+      if (result.ok) toast.success(result.message ?? "Copy trade opened");
       else toast.error(result.message ?? "Signal did not match. Trade lost.");
       setCode("");
       setAmount("");
@@ -191,14 +195,16 @@ function CopyTradingPage() {
             ))}
           </div>
           <div className="mt-4 space-y-3">
-            <div>
-              <Label>Signal code</Label>
-              <Input
-                value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="Enter signal code"
-              />
-            </div>
+            {isSignalTrade && (
+              <div>
+                <Label>Signal code</Label>
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.toUpperCase())}
+                  placeholder="Enter signal code"
+                />
+              </div>
+            )}
             <div>
               <Label>Copy trading amount</Label>
               <div className="flex gap-2">
@@ -220,8 +226,12 @@ function CopyTradingPage() {
             </div>
             <div className="rounded-xl bg-muted/40 p-3 text-xs">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Expected profit</span>
-                <span className="font-semibold text-success">{fmt(expectedProfit)}</span>
+                <span className="text-muted-foreground">
+                  {isSignalTrade ? "Expected profit" : "Settlement"}
+                </span>
+                <span className={isSignalTrade ? "font-semibold text-success" : "font-semibold"}>
+                  {isSignalTrade ? fmt(expectedProfit) : "Loss after cycle"}
+                </span>
               </div>
             </div>
             <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
@@ -232,7 +242,12 @@ function CopyTradingPage() {
             </div>
             <Button
               onClick={() => apply.mutate()}
-              disabled={apply.isPending || !kycApproved || !code.trim() || Number(amount) <= 0}
+              disabled={
+                apply.isPending ||
+                !kycApproved ||
+                (isSignalTrade && !code.trim()) ||
+                Number(amount) <= 0
+              }
               className="h-12 w-full gradient-gold"
             >
               {apply.isPending ? "Applying..." : "Apply to Copy Trading"}

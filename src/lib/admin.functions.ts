@@ -21,6 +21,31 @@ type AnalystInput = {
 };
 
 const COPY_TRADE_PROFIT_RATE = 0.016;
+const ANALYST_AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+
+async function ensureAnalystAvatarBucket(admin: any) {
+  const { error } = await admin.storage.createBucket("profile-avatars", {
+    public: true,
+    fileSizeLimit: 5 * 1024 * 1024,
+    allowedMimeTypes: [...ANALYST_AVATAR_MIME_TYPES],
+  });
+  if (error && !/already exists|duplicate/i.test(error.message ?? "")) throw error;
+  if (error) {
+    await admin.storage.updateBucket("profile-avatars", {
+      public: true,
+      fileSizeLimit: 5 * 1024 * 1024,
+      allowedMimeTypes: [...ANALYST_AVATAR_MIME_TYPES],
+    });
+  }
+}
+
+function analystAvatarExt(fileName: string, mimeType: string) {
+  const fromName = fileName.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (fromName) return fromName;
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/webp") return "webp";
+  return "jpg";
+}
 
 function generateSignalCode(type: CopyTradeType) {
   const prefix = type === "daily" ? "DT" : type === "locked7" ? "L7" : "L30";
@@ -396,6 +421,34 @@ export const adminUpsertCopyTradeAnalyst = createServerFn({ method: "POST" })
       if (error) throw error;
     }
     return { ok: true };
+  });
+
+export const adminUploadCopyTradeAnalystAvatar = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { file_name: string; mime_type: string; content_base64: string }) =>
+    z
+      .object({
+        file_name: z.string().min(1).max(160),
+        mime_type: z.enum(ANALYST_AVATAR_MIME_TYPES),
+        content_base64: z.string().min(20),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const admin = await requireAdmin(context.userId);
+    await ensureAnalystAvatarBucket(admin);
+    const { Buffer } = await import("node:buffer");
+    const ext = analystAvatarExt(data.file_name, data.mime_type);
+    const path = `analysts/avatar-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const { error } = await admin.storage
+      .from("profile-avatars")
+      .upload(path, Buffer.from(data.content_base64, "base64"), {
+        contentType: data.mime_type,
+        upsert: true,
+      });
+    if (error) throw error;
+    const { data: publicUrl } = admin.storage.from("profile-avatars").getPublicUrl(path);
+    return { avatar_url: publicUrl.publicUrl };
   });
 
 export const adminDeleteCopyTradeAnalyst = createServerFn({ method: "POST" })
