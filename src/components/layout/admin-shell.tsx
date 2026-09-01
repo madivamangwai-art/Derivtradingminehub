@@ -11,6 +11,7 @@ import {
   Gift,
   Landmark,
   Gauge,
+  IdCard,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,6 +23,7 @@ const items = [
   { to: "/admin/treasury", label: "Treasury", icon: Gauge },
   { to: "/admin/deposits", label: "Deposits", icon: ArrowDownToLine },
   { to: "/admin/withdrawals", label: "Withdrawals", icon: ArrowUpFromLine },
+  { to: "/admin/kyc", label: "KYC Approval", icon: IdCard },
   { to: "/admin/redpackets", label: "Red Packets", icon: Gift },
   { to: "/admin/teams", label: "Teams", icon: Network },
   { to: "/admin/support", label: "Support", icon: MessageSquare },

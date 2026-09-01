@@ -25,6 +25,22 @@ function money(amount: number) {
 const COPY_TRADE_PROFIT_RATE = 0.016;
 const DAILY_COPY_TRADE_MINUTES = 30;
 
+function decodeXml(value: string) {
+  return value
+    .replace(/<!\[CDATA\[(.*?)\]\]>/gs, "$1")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .trim();
+}
+
+function readXmlTag(item: string, tag: string) {
+  const match = item.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  return match ? decodeXml(match[1]) : "";
+}
+
 function getCopyTradeDurationMs(type: CopyTradeType) {
   if (type === "daily") return DAILY_COPY_TRADE_MINUTES * 60 * 1000;
   if (type === "locked7") return 7 * 24 * 3600 * 1000;
@@ -288,7 +304,7 @@ export const getCopyTradingData = createServerFn({ method: "GET" })
     const { supabase, userId } = context;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     await settleCopyTrades(supabaseAdmin, userId);
-    const [wallet, trades] = await Promise.all([
+    const [wallet, trades, kyc] = await Promise.all([
       supabase.from("wallets").select("*").eq("user_id", userId).maybeSingle(),
       supabase
         .from("copy_trades")
@@ -296,8 +312,21 @@ export const getCopyTradingData = createServerFn({ method: "GET" })
         .eq("user_id", userId)
         .order("opened_at", { ascending: false })
         .limit(50),
+      supabase
+        .from("kyc_verifications")
+        .select("*")
+        .eq("user_id", userId)
+        .order("submitted_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
-    return { wallet: wallet.data, trades: trades.data ?? [], profitRate: COPY_TRADE_PROFIT_RATE };
+    return {
+      wallet: wallet.data,
+      trades: trades.data ?? [],
+      profitRate: COPY_TRADE_PROFIT_RATE,
+      kyc: kyc.data ?? null,
+      kycApproved: kyc.data?.status === "approved",
+    };
   });
 
 export const getMarketData = createServerFn({ method: "GET" }).handler(async () => {
@@ -305,6 +334,13 @@ export const getMarketData = createServerFn({ method: "GET" }).handler(async () 
     { symbol: "AAPL.US", label: "AAPL", name: "Apple Inc." },
     { symbol: "TSLA.US", label: "TSLA", name: "Tesla Inc." },
     { symbol: "NVDA.US", label: "NVDA", name: "NVIDIA Corp." },
+    { symbol: "AMD.US", label: "AMD", name: "Advanced Micro Devices" },
+    { symbol: "AMZN.US", label: "AMZN", name: "Amazon.com Inc." },
+    { symbol: "NFLX.US", label: "NFLX", name: "Netflix Inc." },
+    { symbol: "MSFT.US", label: "MSFT", name: "Microsoft Corp." },
+    { symbol: "META.US", label: "META", name: "Meta Platforms Inc." },
+    { symbol: "GOOGL.US", label: "GOOGL", name: "Alphabet Inc. Class A" },
+    { symbol: "GME.US", label: "GME", name: "GameStop Corp." },
     { symbol: "^NDQ", label: "Nasdaq", name: "Nasdaq" },
     { symbol: "^DJI", label: "Dow Jones", name: "Dow Jones" },
     { symbol: "^SPX", label: "S&P 500", name: "S&P 500" },
@@ -335,15 +371,45 @@ export const getMarketData = createServerFn({ method: "GET" }).handler(async () 
     // The UI falls back to zeroed quotes if the free source is unavailable.
   }
 
-  let news: Array<{ title: string; link: string; pubDate: string }> = [];
-  try {
-    const res = await fetch("https://feeds.finance.yahoo.com/rss/2.0/headline?s=AAPL,TSLA,NVDA&region=US&lang=en-US");
-    const xml = await res.text();
-    news = [...xml.matchAll(/<item>[\s\S]*?<title><!\[CDATA\[(.*?)\]\]><\/title>[\s\S]*?<link>(.*?)<\/link>[\s\S]*?<pubDate>(.*?)<\/pubDate>[\s\S]*?<\/item>/g)]
-      .slice(0, 8)
-      .map((m) => ({ title: m[1], link: m[2], pubDate: m[3] }));
-  } catch {
-    news = [];
+  const feedUrls = [
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=AAPL,TSLA,NVDA,MSFT,META,GOOGL&region=US&lang=en-US",
+    "https://feeds.content.dowjones.io/public/rss/mw_marketpulse",
+    "https://www.investing.com/rss/news_25.rss",
+  ];
+  let news: Array<{ title: string; link: string; pubDate: string; source?: string }> = [];
+  for (const url of feedUrls) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "user-agent": "Mozilla/5.0 DerivTradingMineHub/1.0",
+          accept: "application/rss+xml, application/xml, text/xml",
+        },
+      });
+      if (!res.ok) continue;
+      const xml = await res.text();
+      const items = [...xml.matchAll(/<item\b[\s\S]*?<\/item>/gi)]
+        .map((m) => m[0])
+        .map((item) => ({
+          title: readXmlTag(item, "title"),
+          link: readXmlTag(item, "link") || readXmlTag(item, "guid"),
+          pubDate: readXmlTag(item, "pubDate") || readXmlTag(item, "dc:date") || new Date().toISOString(),
+          source: new URL(url).hostname.replace(/^www\./, ""),
+        }))
+        .filter((item) => item.title && item.link);
+      news = [...news, ...items];
+      if (news.length >= 8) break;
+    } catch {
+      // Try the next public feed before falling back to market-generated briefs.
+    }
+  }
+
+  if (!news.length) {
+    news = markets.slice(0, 6).map((item) => ({
+      title: `${item.label} ${Number(item.change ?? 0) >= 0 ? "moves higher" : "pulls back"} as the latest market quote updates`,
+      link: "https://finance.yahoo.com/markets/",
+      pubDate: new Date().toISOString(),
+      source: "Market pulse",
+    }));
   }
 
   return { markets, news };
@@ -364,6 +430,16 @@ export const applyCopyTrade = createServerFn({ method: "POST" })
     const { userId } = context;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     await settleCopyTrades(supabaseAdmin, userId);
+    const { data: kyc } = await supabaseAdmin
+      .from("kyc_verifications")
+      .select("status")
+      .eq("user_id", userId)
+      .order("submitted_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (kyc?.status !== "approved") {
+      throw new Error("KYC verification must be approved before you can trade.");
+    }
     const code = data.code.trim().toUpperCase();
     const { data: wallet } = await supabaseAdmin
       .from("wallets")
@@ -796,28 +872,78 @@ export const getMyProfile = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
-    const [profile, wallet, roles] = await Promise.all([
+    const [profile, wallet, roles, kyc] = await Promise.all([
       supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
       supabase.from("wallets").select("*").eq("user_id", userId).maybeSingle(),
       supabase.from("user_roles").select("role").eq("user_id", userId),
+      supabase
+        .from("kyc_verifications")
+        .select("*")
+        .eq("user_id", userId)
+        .order("submitted_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
     return {
       profile: profile.data,
       wallet: wallet.data,
+      kyc: kyc.data ?? null,
+      kycApproved: kyc.data?.status === "approved",
       isAdmin: (roles.data ?? []).some((r) => r.role === "admin"),
     };
   });
 
 export const updateProfile = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: { full_name?: string; phone?: string }) =>
+  .inputValidator((d: { full_name?: string; phone?: string; avatar_url?: string }) =>
     z
-      .object({ full_name: z.string().max(80).optional(), phone: z.string().max(15).optional() })
+      .object({
+        full_name: z.string().max(80).optional(),
+        phone: z.string().max(15).optional(),
+        avatar_url: z.string().max(500).optional(),
+      })
       .parse(d),
   )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const { error } = await supabase.from("profiles").update(data).eq("id", userId);
+    if (error) throw error;
+    return { ok: true };
+  });
+
+export const submitKycVerification = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { id_front_path: string; id_back_path: string; selfie_path: string }) =>
+    z
+      .object({
+        id_front_path: z.string().min(5).max(500),
+        id_back_path: z.string().min(5).max(500),
+        selfie_path: z.string().min(5).max(500),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const ownsPaths = [data.id_front_path, data.id_back_path, data.selfie_path].every((path) =>
+      path.startsWith(`${context.userId}/`),
+    );
+    if (!ownsPaths) throw new Error("Invalid KYC upload path.");
+    const { data: existing } = await supabaseAdmin
+      .from("kyc_verifications")
+      .select("status")
+      .eq("user_id", context.userId)
+      .order("submitted_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing?.status === "pending") throw new Error("Your KYC is already under review.");
+    const { error } = await supabaseAdmin.from("kyc_verifications").insert({
+      user_id: context.userId,
+      status: "pending",
+      id_front_path: data.id_front_path,
+      id_back_path: data.id_back_path,
+      selfie_path: data.selfie_path,
+      rejection_reason: null,
+    });
     if (error) throw error;
     return { ok: true };
   });

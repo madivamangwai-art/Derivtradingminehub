@@ -10,6 +10,7 @@ import {
   Users,
   Wallet as WalletIcon,
   Sparkles,
+  Settings,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -61,7 +62,7 @@ function HomePage() {
           <span>Earned: {fmt(wallet?.total_earned ?? 0)}</span>
           <span>Deposited: {fmt(wallet?.total_deposited ?? 0)}</span>
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="mt-4 grid grid-cols-3 gap-3">
           <button
             onClick={() => navigate({ to: "/wallet" })}
             className="flex items-center justify-center gap-2 rounded-xl gradient-gold py-3 text-sm font-semibold"
@@ -73,6 +74,12 @@ function HomePage() {
             className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card py-3 text-sm font-semibold"
           >
             <ArrowUpFromLine className="h-4 w-4" /> Withdraw
+          </button>
+          <button
+            onClick={() => navigate({ to: "/settings" })}
+            className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card py-3 text-sm font-semibold"
+          >
+            <Settings className="h-4 w-4" /> Settings
           </button>
         </div>
       </div>

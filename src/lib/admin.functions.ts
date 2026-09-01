@@ -340,6 +340,69 @@ export const adminGetCopyTrading = createServerFn({ method: "GET" })
     };
   });
 
+export const adminListKycVerifications = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const admin = await requireAdmin(context.userId);
+    const { data: rows } = await admin
+      .from("kyc_verifications")
+      .select("*")
+      .order("submitted_at", { ascending: false })
+      .limit(300);
+    const userIds = [...new Set((rows ?? []).map((row: any) => row.user_id))];
+    const { data: profiles } = userIds.length
+      ? await admin.from("profiles").select("id,full_name,email,phone,avatar_url").in("id", userIds)
+      : { data: [] };
+    const profileMap = new Map((profiles ?? []).map((p) => [p.id, p]));
+
+    const withUrls = await Promise.all(
+      (rows ?? []).map(async (row: any) => {
+        const [front, back, selfie] = await Promise.all(
+          [row.id_front_path, row.id_back_path, row.selfie_path].map(async (path) => {
+            const { data } = await admin.storage
+              .from("kyc-documents")
+              .createSignedUrl(path, 60 * 10);
+            return data?.signedUrl ?? null;
+          }),
+        );
+        return {
+          ...row,
+          profile: profileMap.get(row.user_id) ?? null,
+          documents: { front, back, selfie },
+        };
+      }),
+    );
+
+    return withUrls;
+  });
+
+export const adminReviewKycVerification = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { id: string; status: "approved" | "rejected"; reason?: string }) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        status: z.enum(["approved", "rejected"]),
+        reason: z.string().max(500).optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const admin = await requireAdmin(context.userId);
+    if (data.status === "rejected" && !data.reason?.trim()) {
+      throw new Error("Please write a rejection reason.");
+    }
+    const update = {
+      status: data.status,
+      rejection_reason: data.status === "rejected" ? data.reason?.trim() : null,
+      reviewed_by: context.userId,
+      reviewed_at: new Date().toISOString(),
+    };
+    const { error } = await admin.from("kyc_verifications").update(update).eq("id", data.id);
+    if (error) throw error;
+    return { ok: true };
+  });
+
 export const adminGenerateCopyTradeSignal = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { trade_type: CopyTradeType }) =>

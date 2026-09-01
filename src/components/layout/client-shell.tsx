@@ -1,10 +1,12 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
-import { BarChart3, ChartNoAxesCombined, Home, User, LogOut, Sun, Moon } from "lucide-react";
+import { BarChart3, ChartNoAxesCombined, Home, User, LogOut, Sun, Moon, CheckCircle2, Clock3 } from "lucide-react";
 import type { ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import logoAsset from "@/assets/minehub-logo.png.asset.json";
 import { useTheme } from "@/lib/theme";
+import { getMyProfile } from "@/lib/app.functions";
 
 const tabs = [
   { to: "/home", label: "Home", icon: Home },
@@ -18,6 +20,14 @@ export function ClientShell({ children, title, onLogoClick }: { children: ReactN
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { theme, toggle } = useTheme();
+  const profileFn = useServerFn(getMyProfile);
+  const { data: profileData } = useQuery({
+    queryKey: ["profile-shell"],
+    queryFn: () => profileFn(),
+    staleTime: 60000,
+  });
+  const profile = profileData?.profile;
+  const kycStatus = profileData?.kyc?.status ?? "unverified";
 
   const signOut = async () => {
     await qc.cancelQueries();
@@ -49,6 +59,26 @@ export function ClientShell({ children, title, onLogoClick }: { children: ReactN
             <button onClick={toggle} className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Toggle theme">
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
+            <Link
+              to="/settings"
+              className="relative grid h-9 w-9 place-items-center overflow-hidden rounded-full border border-border bg-card"
+              aria-label="Profile and KYC settings"
+            >
+              {profile?.avatar_url ? (
+                <img src={profile.avatar_url} alt="Profile" className="h-full w-full object-cover" />
+              ) : (
+                <User className="h-4 w-4 text-muted-foreground" />
+              )}
+              <span
+                className={`absolute bottom-0 right-0 rounded-full border border-background ${
+                  kycStatus === "approved"
+                    ? "bg-success text-success-foreground"
+                    : "bg-warning text-foreground"
+                }`}
+              >
+                {kycStatus === "approved" ? <CheckCircle2 className="h-3 w-3" /> : <Clock3 className="h-3 w-3" />}
+              </span>
+            </Link>
             <button onClick={signOut} className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Sign out">
               <LogOut className="h-4 w-4" />
             </button>

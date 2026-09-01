@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedWalletRouteImport } from './routes/_authenticated/wallet'
 import { Route as AuthenticatedTradeRouteImport } from './routes/_authenticated/trade'
 import { Route as AuthenticatedTeamRouteImport } from './routes/_authenticated/team'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedMyRouteImport } from './routes/_authenticated/my'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedTradeIndexRouteImport } from './routes/_authenticated/trade.index'
@@ -31,6 +32,7 @@ import { Route as AuthenticatedAdminSupportRouteImport } from './routes/_authent
 import { Route as AuthenticatedAdminSpinsRouteImport } from './routes/_authenticated/admin.spins'
 import { Route as AuthenticatedAdminRedpacketsRouteImport } from './routes/_authenticated/admin.redpackets'
 import { Route as AuthenticatedAdminPackagesRouteImport } from './routes/_authenticated/admin.packages'
+import { Route as AuthenticatedAdminKycRouteImport } from './routes/_authenticated/admin.kyc'
 import { Route as AuthenticatedAdminDepositsRouteImport } from './routes/_authenticated/admin.deposits'
 import { Route as AuthenticatedAdminClientsRouteImport } from './routes/_authenticated/admin.clients'
 import { Route as AuthenticatedAdminAccountsRouteImport } from './routes/_authenticated/admin.accounts'
@@ -65,6 +67,11 @@ const AuthenticatedTradeRoute = AuthenticatedTradeRouteImport.update({
 const AuthenticatedTeamRoute = AuthenticatedTeamRouteImport.update({
   id: '/team',
   path: '/team',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedMyRoute = AuthenticatedMyRouteImport.update({
@@ -154,6 +161,11 @@ const AuthenticatedAdminPackagesRoute =
     path: '/admin/packages',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAdminKycRoute = AuthenticatedAdminKycRouteImport.update({
+  id: '/admin/kyc',
+  path: '/admin/kyc',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedAdminDepositsRoute =
   AuthenticatedAdminDepositsRouteImport.update({
     id: '/admin/deposits',
@@ -194,12 +206,14 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/home': typeof AuthenticatedHomeRoute
   '/my': typeof AuthenticatedMyRouteWithChildren
+  '/settings': typeof AuthenticatedSettingsRoute
   '/team': typeof AuthenticatedTeamRoute
   '/trade': typeof AuthenticatedTradeRouteWithChildren
   '/wallet': typeof AuthenticatedWalletRoute
   '/admin/accounts': typeof AuthenticatedAdminAccountsRoute
   '/admin/clients': typeof AuthenticatedAdminClientsRoute
   '/admin/deposits': typeof AuthenticatedAdminDepositsRoute
+  '/admin/kyc': typeof AuthenticatedAdminKycRoute
   '/admin/packages': typeof AuthenticatedAdminPackagesRoute
   '/admin/redpackets': typeof AuthenticatedAdminRedpacketsRoute
   '/admin/spins': typeof AuthenticatedAdminSpinsRoute
@@ -223,11 +237,13 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/home': typeof AuthenticatedHomeRoute
   '/my': typeof AuthenticatedMyRouteWithChildren
+  '/settings': typeof AuthenticatedSettingsRoute
   '/team': typeof AuthenticatedTeamRoute
   '/wallet': typeof AuthenticatedWalletRoute
   '/admin/accounts': typeof AuthenticatedAdminAccountsRoute
   '/admin/clients': typeof AuthenticatedAdminClientsRoute
   '/admin/deposits': typeof AuthenticatedAdminDepositsRoute
+  '/admin/kyc': typeof AuthenticatedAdminKycRoute
   '/admin/packages': typeof AuthenticatedAdminPackagesRoute
   '/admin/redpackets': typeof AuthenticatedAdminRedpacketsRoute
   '/admin/spins': typeof AuthenticatedAdminSpinsRoute
@@ -253,12 +269,14 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/my': typeof AuthenticatedMyRouteWithChildren
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/team': typeof AuthenticatedTeamRoute
   '/_authenticated/trade': typeof AuthenticatedTradeRouteWithChildren
   '/_authenticated/wallet': typeof AuthenticatedWalletRoute
   '/_authenticated/admin/accounts': typeof AuthenticatedAdminAccountsRoute
   '/_authenticated/admin/clients': typeof AuthenticatedAdminClientsRoute
   '/_authenticated/admin/deposits': typeof AuthenticatedAdminDepositsRoute
+  '/_authenticated/admin/kyc': typeof AuthenticatedAdminKycRoute
   '/_authenticated/admin/packages': typeof AuthenticatedAdminPackagesRoute
   '/_authenticated/admin/redpackets': typeof AuthenticatedAdminRedpacketsRoute
   '/_authenticated/admin/spins': typeof AuthenticatedAdminSpinsRoute
@@ -284,12 +302,14 @@ export interface FileRouteTypes {
     | '/auth'
     | '/home'
     | '/my'
+    | '/settings'
     | '/team'
     | '/trade'
     | '/wallet'
     | '/admin/accounts'
     | '/admin/clients'
     | '/admin/deposits'
+    | '/admin/kyc'
     | '/admin/packages'
     | '/admin/redpackets'
     | '/admin/spins'
@@ -313,11 +333,13 @@ export interface FileRouteTypes {
     | '/auth'
     | '/home'
     | '/my'
+    | '/settings'
     | '/team'
     | '/wallet'
     | '/admin/accounts'
     | '/admin/clients'
     | '/admin/deposits'
+    | '/admin/kyc'
     | '/admin/packages'
     | '/admin/redpackets'
     | '/admin/spins'
@@ -342,12 +364,14 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/home'
     | '/_authenticated/my'
+    | '/_authenticated/settings'
     | '/_authenticated/team'
     | '/_authenticated/trade'
     | '/_authenticated/wallet'
     | '/_authenticated/admin/accounts'
     | '/_authenticated/admin/clients'
     | '/_authenticated/admin/deposits'
+    | '/_authenticated/admin/kyc'
     | '/_authenticated/admin/packages'
     | '/_authenticated/admin/redpackets'
     | '/_authenticated/admin/spins'
@@ -418,6 +442,13 @@ declare module '@tanstack/react-router' {
       path: '/team'
       fullPath: '/team'
       preLoaderRoute: typeof AuthenticatedTeamRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/my': {
@@ -532,6 +563,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminPackagesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/admin/kyc': {
+      id: '/_authenticated/admin/kyc'
+      path: '/admin/kyc'
+      fullPath: '/admin/kyc'
+      preLoaderRoute: typeof AuthenticatedAdminKycRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/admin/deposits': {
       id: '/_authenticated/admin/deposits'
       path: '/admin/deposits'
@@ -611,12 +649,14 @@ const AuthenticatedTradeRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedMyRoute: typeof AuthenticatedMyRouteWithChildren
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTeamRoute: typeof AuthenticatedTeamRoute
   AuthenticatedTradeRoute: typeof AuthenticatedTradeRouteWithChildren
   AuthenticatedWalletRoute: typeof AuthenticatedWalletRoute
   AuthenticatedAdminAccountsRoute: typeof AuthenticatedAdminAccountsRoute
   AuthenticatedAdminClientsRoute: typeof AuthenticatedAdminClientsRoute
   AuthenticatedAdminDepositsRoute: typeof AuthenticatedAdminDepositsRoute
+  AuthenticatedAdminKycRoute: typeof AuthenticatedAdminKycRoute
   AuthenticatedAdminPackagesRoute: typeof AuthenticatedAdminPackagesRoute
   AuthenticatedAdminRedpacketsRoute: typeof AuthenticatedAdminRedpacketsRoute
   AuthenticatedAdminSpinsRoute: typeof AuthenticatedAdminSpinsRoute
@@ -630,12 +670,14 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedMyRoute: AuthenticatedMyRouteWithChildren,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTeamRoute: AuthenticatedTeamRoute,
   AuthenticatedTradeRoute: AuthenticatedTradeRouteWithChildren,
   AuthenticatedWalletRoute: AuthenticatedWalletRoute,
   AuthenticatedAdminAccountsRoute: AuthenticatedAdminAccountsRoute,
   AuthenticatedAdminClientsRoute: AuthenticatedAdminClientsRoute,
   AuthenticatedAdminDepositsRoute: AuthenticatedAdminDepositsRoute,
+  AuthenticatedAdminKycRoute: AuthenticatedAdminKycRoute,
   AuthenticatedAdminPackagesRoute: AuthenticatedAdminPackagesRoute,
   AuthenticatedAdminRedpacketsRoute: AuthenticatedAdminRedpacketsRoute,
   AuthenticatedAdminSpinsRoute: AuthenticatedAdminSpinsRoute,
