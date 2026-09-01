@@ -29,7 +29,10 @@ function MarketPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["market-data"],
     queryFn: () => fn(),
-    refetchInterval: 120000,
+    staleTime: 0,
+    refetchInterval: 60000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
   });
   const [search, setSearch] = useState("");
   const markets = data?.markets ?? [];

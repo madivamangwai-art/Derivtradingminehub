@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Download, IdCard, ImageUp, RefreshCcw, ShieldAlert, Smartphone, User } from "lucide-react";
+import { CheckCircle2, Download, Eye, EyeOff, IdCard, ImageUp, LockKeyhole, RefreshCcw, ShieldAlert, Smartphone, User } from "lucide-react";
 import { ClientShell } from "@/components/layout/client-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,10 @@ function SettingsPage() {
   const [frontFile, setFrontFile] = useState<File | null>(null);
   const [backFile, setBackFile] = useState<File | null>(null);
   const [selfieFile, setSelfieFile] = useState<File | null>(null);
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPasswords, setShowPasswords] = useState(false);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -98,6 +102,29 @@ function SettingsPage() {
     onError: (e: any) => toast.error(e.message ?? "KYC submission failed"),
   });
 
+  const changePassword = useMutation({
+    mutationFn: async () => {
+      const email = data?.profile?.email;
+      if (!email) throw new Error("Your account email is missing.");
+      if (newPassword.length < 6) throw new Error("New password must be at least 6 characters.");
+      if (newPassword !== confirmPassword) throw new Error("New passwords do not match.");
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password: oldPassword,
+      });
+      if (signInError) throw new Error("Old password is not correct.");
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Password changed");
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    },
+    onError: (e: any) => toast.error(e.message ?? "Password change failed"),
+  });
+
   const kyc = data?.kyc;
   const kycStatus = kyc?.status ?? "not submitted";
   const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -107,10 +134,15 @@ function SettingsPage() {
       await installPrompt.prompt();
       const choice = await installPrompt.userChoice;
       if (choice.outcome === "accepted") toast.success("App install started");
+      else toast.info("Install was cancelled.");
       setInstallPrompt(null);
       return;
     }
-    toast.info(isIos ? "Open Safari, tap Share, then Add to Home Screen." : "Use your browser menu and choose Install app.");
+    if (isIos) {
+      toast.info("Open Safari, tap Share, then Add to Home Screen.");
+      return;
+    }
+    toast.info("Your browser is not offering direct install yet. Open this site in Chrome or Edge, then try Android again.");
   };
 
   return (
@@ -135,6 +167,39 @@ function SettingsPage() {
             <Input type="file" accept="image/*" onChange={(e) => setAvatarFile(e.target.files?.[0] ?? null)} />
             <Button onClick={() => saveAvatar.mutate()} disabled={saveAvatar.isPending || !avatarFile} size="icon" aria-label="Upload profile picture">
               <ImageUp className="h-4 w-4" />
+            </Button>
+          </div>
+        </section>
+
+        <section className="glass-card rounded-2xl p-5">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/15 text-primary">
+              <LockKeyhole className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold">Change password</h2>
+              <p className="mt-1 text-xs text-muted-foreground">Enter your old password and your new password twice.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowPasswords((value) => !value)}
+              className="ml-auto rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label={showPasswords ? "Hide passwords" : "Show passwords"}
+            >
+              {showPasswords ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          <div className="mt-4 space-y-3">
+            <PasswordField label="Old password" value={oldPassword} visible={showPasswords} onChange={setOldPassword} />
+            <PasswordField label="New password" value={newPassword} visible={showPasswords} onChange={setNewPassword} />
+            <PasswordField label="Confirm new password" value={confirmPassword} visible={showPasswords} onChange={setConfirmPassword} />
+            <Button
+              onClick={() => changePassword.mutate()}
+              disabled={changePassword.isPending || !oldPassword || !newPassword || !confirmPassword}
+              className="w-full"
+              variant="secondary"
+            >
+              {changePassword.isPending ? "Changing..." : "Change password"}
             </Button>
           </div>
         </section>
@@ -205,6 +270,15 @@ function FileField({ label, onChange }: { label: string; onChange: (file: File |
     <div>
       <Label>{label}</Label>
       <Input type="file" accept="image/*,application/pdf" onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
+    </div>
+  );
+}
+
+function PasswordField({ label, value, visible, onChange }: { label: string; value: string; visible: boolean; onChange: (value: string) => void }) {
+  return (
+    <div>
+      <Label>{label}</Label>
+      <Input type={visible ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)} autoComplete="current-password" />
     </div>
   );
 }

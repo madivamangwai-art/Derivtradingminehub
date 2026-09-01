@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { getDashboard, getMyProfile, claimPackagePayout } from "@/lib/app.functions";
+import { getDashboard, getMyProfile } from "@/lib/app.functions";
 import { ClientShell } from "@/components/layout/client-shell";
 import {
   ArrowDownToLine,
@@ -11,12 +11,9 @@ import {
   Wallet as WalletIcon,
   Sparkles,
   Settings,
+  ReceiptText,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/home")({
   component: HomePage,
@@ -41,8 +38,6 @@ function HomePage() {
   );
   const isAdmin = prof?.isAdmin ?? false;
 
-  const [selectedPkg, setSelectedPkg] = useState<any>(null);
-
   const handleLogoClick = isAdmin ? () => navigate({ to: "/admin/clients" }) : undefined;
 
   return (
@@ -62,7 +57,7 @@ function HomePage() {
           <span>Earned: {fmt(wallet?.total_earned ?? 0)}</span>
           <span>Deposited: {fmt(wallet?.total_deposited ?? 0)}</span>
         </div>
-        <div className="mt-4 grid grid-cols-3 gap-3">
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <button
             onClick={() => navigate({ to: "/wallet" })}
             className="flex items-center justify-center gap-2 rounded-xl gradient-gold py-3 text-sm font-semibold"
@@ -74,6 +69,12 @@ function HomePage() {
             className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card py-3 text-sm font-semibold"
           >
             <ArrowUpFromLine className="h-4 w-4" /> Withdraw
+          </button>
+          <button
+            onClick={() => navigate({ to: "/transactions" })}
+            className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card py-3 text-sm font-semibold"
+          >
+            <ReceiptText className="h-4 w-4" /> Transactions
           </button>
           <button
             onClick={() => navigate({ to: "/settings" })}
@@ -137,8 +138,6 @@ function HomePage() {
           </div>
         )}
       </Section>
-
-      <PackageClaimDialog pkg={selectedPkg} onClose={() => setSelectedPkg(null)} />
 
       <Section title="Recent activity">
         {(data?.recentTransactions ?? []).length === 0 ? (
@@ -217,89 +216,5 @@ function EmptyState({
       <p className="mb-3 mt-1 text-xs text-muted-foreground">{body}</p>
       {action}
     </div>
-  );
-}
-
-function PackageClaimDialog({ pkg, onClose }: { pkg: any; onClose: () => void }) {
-  const claimFn = useServerFn(claimPackagePayout);
-  const qc = useQueryClient();
-  const claim = useMutation({
-    mutationFn: () => claimFn({ data: { user_package_id: pkg.id } }),
-    onSuccess: (r: any) => {
-      toast.success(`Claimed ${fmt(r.amount)} to your wallet`);
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-      qc.invalidateQueries({ queryKey: ["wallet"] });
-      onClose();
-    },
-    onError: (e: any) => toast.error(e.message ?? "Cannot claim yet"),
-  });
-  if (!pkg) return null;
-  const pending = pkg.pending ?? { amount: 0, days: 0, nextBoundaryIso: null, mode: "daily" };
-  const locked = pending.mode === "locked";
-  const daysLeft = Math.max(
-    0,
-    Math.ceil((new Date(pkg.expires_at).getTime() - Date.now()) / 86400000),
-  );
-  const nextAt = pending.nextBoundaryIso ? new Date(pending.nextBoundaryIso) : null;
-  return (
-    <Dialog open={!!pkg} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{pkg.packages?.name}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div className="rounded-lg bg-muted/40 p-3">
-              <div className="text-[10px] uppercase text-muted-foreground">
-                {locked ? "Maturity value" : "Daily payout"}
-              </div>
-              <div className="font-semibold">
-                {locked ? fmt(pending.expectedTotal ?? 0) : fmt(pkg.packages?.daily_payout)}
-              </div>
-            </div>
-            <div className="rounded-lg bg-muted/40 p-3">
-              <div className="text-[10px] uppercase text-muted-foreground">Days remaining</div>
-              <div className="font-semibold">{daysLeft}</div>
-            </div>
-            <div className="rounded-lg bg-muted/40 p-3">
-              <div className="text-[10px] uppercase text-muted-foreground">Total paid out</div>
-              <div className="font-semibold">{fmt(pkg.total_paid_out)}</div>
-            </div>
-            <div className="rounded-lg bg-muted/40 p-3">
-              <div className="text-[10px] uppercase text-muted-foreground">Expires</div>
-              <div className="font-semibold text-xs">
-                {new Date(pkg.expires_at).toLocaleDateString()}
-              </div>
-            </div>
-          </div>
-          <div className={`rounded-xl p-4 ${pending.amount > 0 ? "bg-success/15" : "bg-muted/30"}`}>
-            <div className="text-xs uppercase text-muted-foreground">Ready to claim</div>
-            <div className="text-2xl font-bold">{fmt(pending.amount)}</div>
-            <div className="mt-1 text-[11px] text-muted-foreground">
-              {locked
-                ? pending.amount > 0
-                  ? "Locked term matured. Claim the full maturity value to your wallet."
-                  : `Locked capital releases on ${new Date(pkg.expires_at).toLocaleDateString()}.`
-                : pending.days > 0
-                  ? `${pending.days} day${pending.days > 1 ? "s" : ""} accumulated. Principal is added at day ${pkg.packages?.duration_days}.`
-                  : nextAt
-                    ? `Next payout unlocks ${nextAt.toLocaleString()}`
-                    : "Payouts unlock daily at 01:00."}
-            </div>
-          </div>
-          <Button
-            onClick={() => claim.mutate()}
-            disabled={claim.isPending || pending.amount <= 0}
-            className="w-full gradient-gold"
-          >
-            {claim.isPending
-              ? "Claiming..."
-              : pending.amount > 0
-                ? `Claim ${fmt(pending.amount)}`
-                : "Nothing to claim yet"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }

@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { adminListClients, adminPromote, adminAdjustWallet } from "@/lib/admin.functions";
+import { adminListClients, adminPromote, adminAdjustWallet, adminResetClientPassword } from "@/lib/admin.functions";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
-import { ChevronDown, ChevronRight, ShieldCheck, ShieldOff } from "lucide-react";
+import { ChevronDown, ChevronRight, KeyRound, ShieldCheck, ShieldOff } from "lucide-react";
 import { toast } from "sonner";
 import { requireAdminRoute } from "@/lib/admin-route";
 
@@ -19,6 +19,7 @@ const fmt = (n: any) => `KES ${Number(n ?? 0).toLocaleString()}`;
 function AdminClients() {
   const listFn = useServerFn(adminListClients);
   const promoteFn = useServerFn(adminPromote);
+  const resetPasswordFn = useServerFn(adminResetClientPassword);
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["admin-clients"], queryFn: () => listFn() });
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -43,6 +44,14 @@ function AdminClients() {
       qc.invalidateQueries({ queryKey: ["admin-clients"] });
     },
     onError: (e: any) => toast.error(e.message),
+  });
+
+  const resetPassword = useMutation({
+    mutationFn: async (user_id: string) => resetPasswordFn({ data: { user_id } }),
+    onSuccess: (result: any) => {
+      toast.success(`Password reset to phone number: ${result.password}`);
+    },
+    onError: (e: any) => toast.error(e.message ?? "Could not reset password"),
   });
 
   return (
@@ -99,6 +108,16 @@ function AdminClients() {
                       >
                         <ShieldOff className="h-3 w-3" /> Revoke
                       </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Reset ${c.full_name || c.email}'s password to their phone number?`)) {
+                            resetPassword.mutate(c.id);
+                          }
+                        }}
+                        className="mt-2 inline-flex items-center gap-1 rounded-md bg-warning/20 px-3 py-1.5 text-xs text-foreground md:mt-0 md:ml-2"
+                      >
+                        <KeyRound className="h-3 w-3" /> Reset password
+                      </button>
                     </div>
                   </div>
                   <div className="mt-3 flex items-center gap-2 rounded-lg border border-border/60 bg-card p-2">
@@ -125,30 +144,29 @@ function AdminClients() {
                     </button>
                   </div>
                   <h4 className="mt-4 mb-2 text-xs font-semibold uppercase text-muted-foreground">
-                    Purchased packages
+                    Copy trading history
                   </h4>
-                  {c.packages.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">No purchases yet.</div>
+                  {(c.trades ?? []).length === 0 ? (
+                    <div className="text-xs text-muted-foreground">No copy trades yet.</div>
                   ) : (
                     <div className="space-y-1">
-                      {c.packages.map((p: any) => (
+                      {(c.trades ?? []).map((p: any) => (
                         <div
                           key={p.id}
                           className="flex items-center justify-between rounded-md bg-card px-3 py-2 text-xs"
                         >
                           <div>
-                            <div className="font-medium">{p.packages?.name}</div>
+                            <div className="font-medium capitalize">{String(p.trade_type).replace("locked", "locked ")}</div>
                             <div className="text-[10px] text-muted-foreground">
-                              Purchased {new Date(p.purchased_at).toLocaleDateString()} · Expires{" "}
-                              {new Date(p.expires_at).toLocaleDateString()}
+                              Opened {new Date(p.opened_at).toLocaleDateString()} - Code {p.code_entered}
                             </div>
                           </div>
                           <div className="text-right">
-                            <div className="text-[10px] uppercase text-muted-foreground">Paid</div>
-                            <div className="font-semibold">{fmt(p.total_paid_out)}</div>
+                            <div className="text-[10px] uppercase text-muted-foreground">Profit</div>
+                            <div className="font-semibold">{fmt(p.total_profit_paid)}</div>
                           </div>
                           <span
-                            className={`ml-3 rounded-full px-2 py-0.5 text-[10px] uppercase ${p.status === "active" ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"}`}
+                            className={`ml-3 rounded-full px-2 py-0.5 text-[10px] uppercase ${p.status === "open" ? "bg-primary/15 text-primary" : p.status === "won" ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"}`}
                           >
                             {p.status}
                           </span>

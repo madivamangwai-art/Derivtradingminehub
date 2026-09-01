@@ -4,6 +4,21 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { getPackageMaturityReturnRate, getPackagePayoutMode } from "@/lib/app.functions";
 
 type CopyTradeType = "daily" | "locked7" | "locked30";
+type AnalystInput = {
+  id?: string;
+  name: string;
+  title: string;
+  avatar_url?: string;
+  bio: string;
+  one_day_return_rate: number;
+  seven_day_roi: number;
+  follow_period_days?: number | null;
+  commission_rate: number;
+  min_copy_amount: number;
+  max_copy_amount?: number | null;
+  active: boolean;
+  sort_order: number;
+};
 
 const COPY_TRADE_PROFIT_RATE = 0.016;
 
@@ -41,25 +56,25 @@ export const adminListClients = createServerFn({ method: "GET" })
       .limit(500);
     const ids = (profiles ?? []).map((p) => p.id);
     if (!ids.length) return [];
-    const [{ data: wallets }, { data: pkgs }] = await Promise.all([
+    const [{ data: wallets }, { data: trades }] = await Promise.all([
       admin.from("wallets").select("*").in("user_id", ids),
       admin
-        .from("user_packages")
-        .select("*, packages(name,tier,price,daily_payout)")
+        .from("copy_trades")
+        .select("*")
         .in("user_id", ids)
-        .order("purchased_at", { ascending: false }),
+        .order("opened_at", { ascending: false }),
     ]);
     const walletMap = new Map((wallets ?? []).map((w) => [w.user_id, w]));
-    const pkgMap = new Map<string, typeof pkgs>();
-    (pkgs ?? []).forEach((p) => {
-      const list = pkgMap.get(p.user_id) ?? [];
-      list.push(p);
-      pkgMap.set(p.user_id, list);
+    const tradeMap = new Map<string, typeof trades>();
+    (trades ?? []).forEach((trade) => {
+      const list = tradeMap.get(trade.user_id) ?? [];
+      list.push(trade);
+      tradeMap.set(trade.user_id, list);
     });
     return (profiles ?? []).map((p) => ({
       ...p,
       wallet: walletMap.get(p.id) ?? null,
-      packages: pkgMap.get(p.id) ?? [],
+      trades: tradeMap.get(p.id) ?? [],
     }));
   });
 
@@ -303,17 +318,18 @@ export const adminGetCopyTrading = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const admin = await requireAdmin(context.userId);
-    const [signalsRes, tradesRes] = await Promise.all([
+    const [signalsRes, tradesRes, analystsRes] = await Promise.all([
       admin
         .from("copy_trade_signals")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(100),
+      admin.from("copy_trades").select("*").order("opened_at", { ascending: false }).limit(500),
       admin
-        .from("copy_trades")
+        .from("copy_trade_analysts")
         .select("*")
-        .order("opened_at", { ascending: false })
-        .limit(500),
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true }),
     ]);
     const trades = tradesRes.data ?? [];
     const userIds = [...new Set(trades.map((t: any) => t.user_id))];
@@ -327,6 +343,7 @@ export const adminGetCopyTrading = createServerFn({ method: "GET" })
 
     return {
       signals: signalsRes.data ?? [],
+      analysts: analystsRes.data ?? [],
       trades: trades.map((trade: any) => ({
         ...trade,
         profile: profileMap.get(trade.user_id) ?? null,
@@ -338,6 +355,57 @@ export const adminGetCopyTrading = createServerFn({ method: "GET" })
         openDailyOutflow,
       },
     };
+  });
+
+export const adminUpsertCopyTradeAnalyst = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: AnalystInput) =>
+    z
+      .object({
+        id: z.string().uuid().optional(),
+        name: z.string().min(1).max(80),
+        title: z.string().min(1).max(80),
+        avatar_url: z.string().max(500).optional().or(z.literal("")),
+        bio: z.string().min(1).max(1200),
+        one_day_return_rate: z.number().min(-1).max(10),
+        seven_day_roi: z.number().min(-1).max(10),
+        follow_period_days: z.number().int().positive().nullable().optional(),
+        commission_rate: z.number().min(0).max(1),
+        min_copy_amount: z.number().min(0),
+        max_copy_amount: z.number().min(0).nullable().optional(),
+        active: z.boolean(),
+        sort_order: z.number().int(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const admin = await requireAdmin(context.userId);
+    const payload = {
+      ...data,
+      avatar_url: data.avatar_url || null,
+      max_copy_amount: data.max_copy_amount || null,
+      updated_at: new Date().toISOString(),
+    };
+    if (data.id) {
+      const { id: _id, ...update } = payload;
+      const { error } = await admin.from("copy_trade_analysts").update(update).eq("id", data.id);
+      if (error) throw error;
+    } else {
+      const { id: _id, ...insert } = payload;
+      const { error } = await admin.from("copy_trade_analysts").insert(insert);
+      if (error) throw error;
+    }
+    return { ok: true };
+  });
+
+export const adminDeleteCopyTradeAnalyst = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const admin = await requireAdmin(context.userId);
+    const { error } = await admin.from("copy_trade_analysts").delete().eq("id", data.id);
+    if (error) throw error;
+    return { ok: true };
   });
 
 export const adminListKycVerifications = createServerFn({ method: "GET" })
@@ -536,6 +604,24 @@ export const adminPromote = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const adminResetClientPassword = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { user_id: string }) => z.object({ user_id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const admin = await requireAdmin(context.userId);
+    const { data: prof } = await admin
+      .from("profiles")
+      .select("phone,email")
+      .eq("id", data.user_id)
+      .maybeSingle();
+    if (!prof?.phone) throw new Error("Client has no phone number to use as the default password.");
+    const password = String(prof.phone).trim();
+    if (password.length < 6) throw new Error("Phone number must be at least 6 characters.");
+    const { error } = await admin.auth.admin.updateUserById(data.user_id, { password });
+    if (error) throw error;
+    return { ok: true, password };
+  });
+
 export const adminAdjustWallet = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { user_id: string; amount: number; note?: string }) =>
@@ -629,7 +715,9 @@ export const adminGetAccounts = createServerFn({ method: "GET" })
     const [wallets, withdrawals, redPackets, deposits, txns30] = await Promise.all([
       admin.from("wallets").select("balance,total_deposited,total_withdrawn,total_earned"),
       admin.from("withdrawals").select("amount,fee,net_amount,status,created_at"),
-      admin.from("red_packets").select("total_amount,claimed_count,max_claims,ticket_value,status,created_at"),
+      admin
+        .from("red_packets")
+        .select("total_amount,claimed_count,max_claims,ticket_value,status,created_at"),
       admin.from("deposits").select("amount,status,created_at"),
       admin
         .from("transactions")
@@ -660,10 +748,15 @@ export const adminGetAccounts = createServerFn({ method: "GET" })
       );
 
     const packetRows = redPackets.data ?? [];
-    const redPacketFunded = packetRows.reduce((s: number, p: any) => s + Number(p.total_amount ?? 0), 0);
+    const redPacketFunded = packetRows.reduce(
+      (s: number, p: any) => s + Number(p.total_amount ?? 0),
+      0,
+    );
     const redPacketClaimed = packetRows.reduce(
       (s: number, p: any) =>
-        s + Number(p.claimed_count ?? 0) * Math.floor(Number(p.total_amount ?? 0) / Math.max(1, Number(p.max_claims ?? 1))),
+        s +
+        Number(p.claimed_count ?? 0) *
+          Math.floor(Number(p.total_amount ?? 0) / Math.max(1, Number(p.max_claims ?? 1))),
       0,
     );
     const redPacketUnclaimed = Math.max(0, redPacketFunded - redPacketClaimed);
@@ -692,15 +785,16 @@ export const adminGetAccounts = createServerFn({ method: "GET" })
     // Coverage ratio: house cash vs client liability
     const coverageRatio = clientLiability > 0 ? houseBalance / clientLiability : null;
 
-    // Compute expected outflow from active, unexpired daily packages only.
+    // Compute expected outflow from active copy trades.
     const nowIso = new Date().toISOString();
-    const { data: activePkgs } = await admin
-      .from("user_packages")
-      .select("packages(daily_payout)")
-      .eq("status", "active")
-      .gt("expires_at", nowIso);
-    const expectedDaily = (activePkgs ?? []).reduce(
-      (s: number, p: any) => s + Number(p.packages?.daily_payout ?? 0),
+    const { data: openTrades } = await admin
+      .from("copy_trades")
+      .select("amount,profit_rate,trade_type,closes_at,last_profit_at")
+      .eq("status", "open")
+      .gt("closes_at", nowIso);
+    const expectedDaily = (openTrades ?? []).reduce(
+      (s: number, trade: any) =>
+        s + Number(trade.amount ?? 0) * Number(trade.profit_rate ?? COPY_TRADE_PROFIT_RATE),
       0,
     );
     const expectedWeekly = expectedDaily * 7;
@@ -717,7 +811,11 @@ export const adminGetAccounts = createServerFn({ method: "GET" })
         paidOutNet,
       },
       fees: { collected: feesCollectedPaid, pending: feesPending, rate: 0.2 },
-      redPackets: { funded: redPacketFunded, claimed: redPacketClaimed, unclaimed: redPacketUnclaimed },
+      redPackets: {
+        funded: redPacketFunded,
+        claimed: redPacketClaimed,
+        unclaimed: redPacketUnclaimed,
+      },
       spin: { spent: 0, paidOut: 0, retained: 0 },
       house: { balance: houseBalance, runwayDays, coverageRatio },
       window30d: {
@@ -741,17 +839,17 @@ export const adminGetTreasury = createServerFn({ method: "GET" })
     const next7 = new Date(now.getTime() + 7 * 24 * 3600 * 1000);
     const next30 = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
 
-    const [deposits, withdrawals, activePkgs, referrals, settings, payoutTxnsToday] =
+    const [deposits, withdrawals, openTrades, referrals, settings, payoutTxnsToday] =
       await Promise.all([
         admin.from("deposits").select("amount,status,created_at,metadata").eq("status", "success"),
         admin.from("withdrawals").select("amount,net_amount,status,created_at"),
-        admin.from("user_packages").select("*, packages(*)").eq("status", "active"),
+        admin.from("copy_trades").select("*").eq("status", "open"),
         admin.from("referral_earnings").select("amount,created_at"),
         admin.from("treasury_settings").select("*").eq("id", 1).maybeSingle(),
         admin
           .from("transactions")
           .select("kind,amount,created_at")
-          .eq("kind", "payout")
+          .in("kind", ["payout", "copy_trade_profit"])
           .gte("created_at", startOfDay.toISOString()),
       ]);
 
@@ -770,10 +868,12 @@ export const adminGetTreasury = createServerFn({ method: "GET" })
     );
     const treasuryBalance = totalDeposits - totalManualWithdrawals;
 
-    const activeRows = (activePkgs.data ?? []).filter((up: any) => new Date(up.expires_at) > now);
-    const uniqueClients = new Set(activeRows.map((up: any) => up.user_id)).size;
+    const activeRows = (openTrades.data ?? []).filter(
+      (trade: any) => new Date(trade.closes_at) > now,
+    );
+    const uniqueClients = new Set(activeRows.map((trade: any) => trade.user_id)).size;
     const totalActivePrincipal = activeRows.reduce(
-      (sum: number, up: any) => sum + Number(up.packages?.price ?? 0),
+      (sum: number, trade: any) => sum + Number(trade.amount ?? 0),
       0,
     );
 
@@ -782,26 +882,31 @@ export const adminGetTreasury = createServerFn({ method: "GET" })
     let totalDailyLiability = 0;
     let totalRiskExposure = 0;
 
-    for (const up of activeRows) {
-      const pkg = up.packages ?? {};
-      const mode = getPackagePayoutMode(pkg);
-      const code = String(pkg.code ?? "PKG");
-      const dailyPayout = mode === "daily" ? Number(pkg.daily_payout ?? 0) : 0;
-      const principal = Number(pkg.price ?? 0);
-      const expiresAt = new Date(up.expires_at);
-      const maturityTotal =
-        mode === "locked" ? principal * getPackageMaturityReturnRate(pkg) : principal;
-      const dailyRemainingDays =
+    for (const trade of activeRows) {
+      const mode = String(trade.trade_type ?? "daily");
+      const code =
         mode === "daily"
-          ? Math.max(0, Math.ceil((expiresAt.getTime() - now.getTime()) / 86400000))
-          : 0;
-      const riskExposure =
-        mode === "locked" ? maturityTotal : principal + dailyPayout * dailyRemainingDays;
-      const maturingNext7 = mode === "locked" && expiresAt <= next7 ? maturityTotal : 0;
+          ? "30-minute copy"
+          : mode === "locked7"
+            ? "7-day locked copy"
+            : "30-day locked copy";
+      const principal = Number(trade.amount ?? 0);
+      const rate = Number(trade.profit_rate ?? 0.016);
+      const expiresAt = new Date(trade.closes_at);
+      const expectedProfit = principal * rate;
+      const dailyPayout = mode === "daily" ? expectedProfit : expectedProfit;
+      const remainingDays = Math.max(
+        1,
+        Math.ceil((expiresAt.getTime() - now.getTime()) / 86400000),
+      );
+      const maturityTotal = principal + expectedProfit * remainingDays;
+      const dailyRemainingDays = mode === "daily" ? 1 : remainingDays;
+      const riskExposure = principal + dailyPayout * dailyRemainingDays;
+      const maturingNext7 = expiresAt <= next7 ? maturityTotal : 0;
 
       if (!matrixMap.has(code)) {
         matrixMap.set(code, {
-          packageCode: code,
+          tradeType: code,
           activeSubscriptions: 0,
           dailyPayoutLiability: 0,
           maturingLockedCapitalNext7: 0,
@@ -851,7 +956,7 @@ export const adminGetTreasury = createServerFn({ method: "GET" })
         totalDailyLiability,
         totalRiskExposure,
       },
-      matrix: [...matrixMap.values()].sort((a, b) => a.packageCode.localeCompare(b.packageCode)),
+      matrix: [...matrixMap.values()].sort((a, b) => a.tradeType.localeCompare(b.tradeType)),
       maturityWall: [...maturityWallMap.entries()]
         .map(([date, amount]) => ({ date, amount }))
         .sort((a, b) => a.date.localeCompare(b.date)),

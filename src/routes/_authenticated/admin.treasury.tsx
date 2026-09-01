@@ -43,7 +43,7 @@ function TreasuryPage() {
 
   if (isLoading || !data) {
     return (
-      <AdminShell title="Treasury Runway & Liability Matrix">
+      <AdminShell title="Copy Trading Treasury">
         <div className="p-8 text-center text-sm text-muted-foreground">Loading...</div>
       </AdminShell>
     );
@@ -57,7 +57,7 @@ function TreasuryPage() {
   const critical = runway !== null && runway < 14;
 
   return (
-    <AdminShell title="Treasury Runway & Liability Matrix">
+    <AdminShell title="Copy Trading Treasury">
       <div className="space-y-5">
         <div className="grid gap-3 md:grid-cols-4">
           <Summary
@@ -74,7 +74,7 @@ function TreasuryPage() {
           />
           <Summary
             icon={Lock}
-            label="Total Active Principal"
+            label="Open Copy Capital"
             value={fmt(data.summary.totalActivePrincipal)}
           />
           <Summary
@@ -87,47 +87,41 @@ function TreasuryPage() {
         <div className="grid gap-3 lg:grid-cols-[1fr_340px]">
           <div className="glass-card overflow-hidden rounded-2xl">
             <div className="border-b border-border/60 px-4 py-3">
-              <div className="text-sm font-semibold">Liability Breakdown Matrix</div>
+              <div className="text-sm font-semibold">Copy Trade Liability Matrix</div>
               <div className="text-[11px] text-muted-foreground">
-                Daily cash obligations and near-term locked maturities
+                Open copy-trade capital, expected profit, and near-term closings
               </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-sm">
                 <thead className="bg-muted/35 text-left text-[11px] uppercase text-muted-foreground">
                   <tr>
-                    <th className="px-4 py-3">Package Code</th>
-                    <th className="px-4 py-3">Active Subscriptions</th>
-                    <th className="px-4 py-3">Daily Payout Liability</th>
-                    <th className="px-4 py-3">Maturing Locked Capital (Next 7 Days)</th>
+                    <th className="px-4 py-3">Copy Trade Type</th>
+                    <th className="px-4 py-3">Open Trades</th>
+                    <th className="px-4 py-3">Expected Profit Liability</th>
+                    <th className="px-4 py-3">Closing Capital + Profit (Next 7 Days)</th>
                     <th className="px-4 py-3">Total Risk Exposure</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.matrix.map((row: any) => (
-                    <tr key={row.packageCode} className="border-t border-border/40">
+                    <tr key={row.tradeType} className="border-t border-border/40">
                       <td className="px-4 py-3 font-semibold">
-                        {row.packageCode}{" "}
+                        {row.tradeType}{" "}
                         <span className="text-[10px] uppercase text-muted-foreground">
                           {row.mode}
                         </span>
                       </td>
                       <td className="px-4 py-3">{row.activeSubscriptions}</td>
-                      <td className="px-4 py-3">
-                        {row.mode === "locked" ? "0.00 (Locked)" : fmt(row.dailyPayoutLiability)}
-                      </td>
-                      <td className="px-4 py-3">
-                        {row.mode === "locked"
-                          ? fmt(row.maturingLockedCapitalNext7)
-                          : "N/A (Principal at Day 60)"}
-                      </td>
+                      <td className="px-4 py-3">{fmt(row.dailyPayoutLiability)}</td>
+                      <td className="px-4 py-3">{fmt(row.maturingLockedCapitalNext7)}</td>
                       <td className="px-4 py-3 font-semibold">{fmt(row.totalRiskExposure)}</td>
                     </tr>
                   ))}
                   {data.matrix.length === 0 && (
                     <tr>
                       <td className="px-4 py-8 text-center text-muted-foreground" colSpan={5}>
-                        No active package liabilities.
+                        No open copy-trade liabilities.
                       </td>
                     </tr>
                   )}
@@ -187,7 +181,7 @@ function TreasuryPage() {
         <div className="grid gap-3 lg:grid-cols-[1fr_340px]">
           <div className="glass-card rounded-2xl p-4">
             <div className="mb-4 flex items-center gap-2 text-sm font-semibold">
-              <CalendarDays className="h-4 w-4 text-primary" /> Maturity Wall Calendar
+              <CalendarDays className="h-4 w-4 text-primary" /> Copy Trade Closing Calendar
             </div>
             <div className="space-y-3">
               {data.maturityWall.map((day: any) => (
@@ -209,7 +203,7 @@ function TreasuryPage() {
               ))}
               {data.maturityWall.length === 0 && (
                 <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                  No maturities in the next 30 days.
+                  No copy trades closing in the next 30 days.
                 </div>
               )}
             </div>

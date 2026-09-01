@@ -24,6 +24,7 @@ function money(amount: number) {
 
 const COPY_TRADE_PROFIT_RATE = 0.016;
 const DAILY_COPY_TRADE_MINUTES = 30;
+const DIRECT_TRADE_PROFIT_REFERRAL_RATE = 0.03;
 
 function decodeXml(value: string) {
   return value
@@ -126,6 +127,49 @@ async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
           : `Daily profit from ${getCopyTradeLabel(trade.trade_type)}`,
       ref_id: trade.id,
     });
+
+    if (profitOnly > 0) {
+      const { data: prof } = await supabaseAdmin
+        .from("profiles")
+        .select("referred_by")
+        .eq("id", trade.user_id)
+        .maybeSingle();
+      if (prof?.referred_by) {
+        const bonus = money(profitOnly * DIRECT_TRADE_PROFIT_REFERRAL_RATE);
+        if (bonus > 0) {
+          const { data: refWallet } = await supabaseAdmin
+            .from("wallets")
+            .select("balance,total_earned")
+            .eq("user_id", prof.referred_by)
+            .maybeSingle();
+          if (refWallet) {
+            await supabaseAdmin
+              .from("wallets")
+              .update({
+                balance: money(Number(refWallet.balance ?? 0) + bonus),
+                total_earned: money(Number(refWallet.total_earned ?? 0) + bonus),
+              })
+              .eq("user_id", prof.referred_by);
+            await supabaseAdmin.from("referral_earnings").insert({
+              referrer_id: prof.referred_by,
+              referred_user_id: trade.user_id,
+              amount: bonus,
+              package_id: null,
+              user_package_id: null,
+              source_trade_id: trade.id,
+              source: "trade_profit",
+            });
+            await supabaseAdmin.from("transactions").insert({
+              user_id: prof.referred_by,
+              kind: "direct_income",
+              amount: bonus,
+              description: `3% direct income from referred copy trade profit`,
+              ref_id: trade.id,
+            });
+          }
+        }
+      }
+    }
   }
 }
 
@@ -304,7 +348,7 @@ export const getCopyTradingData = createServerFn({ method: "GET" })
     const { supabase, userId } = context;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     await settleCopyTrades(supabaseAdmin, userId);
-    const [wallet, trades, kyc] = await Promise.all([
+    const [wallet, trades, kyc, analysts] = await Promise.all([
       supabase.from("wallets").select("*").eq("user_id", userId).maybeSingle(),
       supabase
         .from("copy_trades")
@@ -319,6 +363,12 @@ export const getCopyTradingData = createServerFn({ method: "GET" })
         .order("submitted_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from("copy_trade_analysts")
+        .select("*")
+        .eq("active", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true }),
     ]);
     return {
       wallet: wallet.data,
@@ -326,7 +376,108 @@ export const getCopyTradingData = createServerFn({ method: "GET" })
       profitRate: COPY_TRADE_PROFIT_RATE,
       kyc: kyc.data ?? null,
       kycApproved: kyc.data?.status === "approved",
+      analysts: analysts.data ?? [],
     };
+  });
+
+export const getClientTransactions = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await settleCopyTrades(supabaseAdmin, userId);
+    const [txns, deposits, withdrawals, trades, earnings] = await Promise.all([
+      supabase
+        .from("transactions")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      supabase
+        .from("deposits")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(100),
+      supabase
+        .from("withdrawals")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(100),
+      supabase
+        .from("copy_trades")
+        .select("*")
+        .eq("user_id", userId)
+        .order("opened_at", { ascending: false })
+        .limit(100),
+      supabase
+        .from("referral_earnings")
+        .select("*")
+        .eq("referrer_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(100),
+    ]);
+
+    const rows = [
+      ...(txns.data ?? []).map((row: any) => ({
+        id: `txn:${row.id}`,
+        kind: row.kind,
+        title: row.description || String(row.kind).replaceAll("_", " "),
+        amount: Number(row.amount ?? 0),
+        status: "success",
+        created_at: row.created_at,
+        source: "Ledger",
+      })),
+      ...(deposits.data ?? []).map((row: any) => ({
+        id: `deposit:${row.id}`,
+        kind: "deposit",
+        title: "Deposit",
+        amount: Number(row.amount ?? 0),
+        status: row.status,
+        created_at: row.created_at,
+        source: "M-Pesa",
+      })),
+      ...(withdrawals.data ?? []).map((row: any) => ({
+        id: `withdrawal:${row.id}`,
+        kind: "withdrawal",
+        title: "Withdrawal",
+        amount: -Number(row.amount ?? 0),
+        status: row.status,
+        created_at: row.created_at,
+        source: "M-Pesa",
+      })),
+      ...(trades.data ?? []).map((row: any) => ({
+        id: `trade:${row.id}`,
+        kind: row.status === "lost" ? "copy_trade_loss" : "copy_trade",
+        title: `${String(row.trade_type).replace("locked", "locked ")} copy trade`,
+        amount: -Number(row.amount ?? 0),
+        status: row.status,
+        created_at: row.opened_at,
+        source: "Copy trading",
+      })),
+      ...(earnings.data ?? []).map((row: any) => ({
+        id: `earning:${row.id}`,
+        kind: "direct_income",
+        title: "Direct income from referred trade profit",
+        amount: Number(row.amount ?? 0),
+        status: "success",
+        created_at: row.created_at,
+        source: "Referral",
+      })),
+    ];
+
+    const seen = new Set<string>();
+    const items = rows
+      .filter((row) => {
+        const key = `${row.kind}:${row.amount}:${row.created_at}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    return { items };
   });
 
 export const getMarketData = createServerFn({ method: "GET" }).handler(async () => {
@@ -781,53 +932,6 @@ export const purchasePackage = createServerFn({ method: "POST" })
       ref_id: up.id,
     });
 
-    // Referral bonus (once per referrer + referred user + package tier)
-    const { data: prof } = await supabaseAdmin
-      .from("profiles")
-      .select("referred_by")
-      .eq("id", userId)
-      .maybeSingle();
-    if (prof?.referred_by && Number(pkg.referral_bonus) > 0) {
-      const { data: existing } = await supabaseAdmin
-        .from("referral_earnings")
-        .select("id")
-        .eq("referrer_id", prof.referred_by)
-        .eq("referred_user_id", userId)
-        .eq("package_id", pkg.id)
-        .maybeSingle();
-      if (!existing) {
-        const { error: refErr } = await supabaseAdmin.from("referral_earnings").insert({
-          referrer_id: prof.referred_by,
-          referred_user_id: userId,
-          package_id: pkg.id,
-          user_package_id: up.id,
-          amount: Number(pkg.referral_bonus),
-        });
-        if (!refErr) {
-          const { data: refWallet } = await supabaseAdmin
-            .from("wallets")
-            .select("balance,total_earned")
-            .eq("user_id", prof.referred_by)
-            .maybeSingle();
-          if (refWallet) {
-            await supabaseAdmin
-              .from("wallets")
-              .update({
-                balance: Number(refWallet.balance) + Number(pkg.referral_bonus),
-                total_earned: Number(refWallet.total_earned) + Number(pkg.referral_bonus),
-              })
-              .eq("user_id", prof.referred_by);
-            await supabaseAdmin.from("transactions").insert({
-              user_id: prof.referred_by,
-              kind: "referral",
-              amount: Number(pkg.referral_bonus),
-              description: `Referral bonus (${pkg.name})`,
-              ref_id: up.id,
-            });
-          }
-        }
-      }
-    }
     return { ok: true };
   });
 
@@ -844,24 +948,50 @@ export const getMyTeam = createServerFn({ method: "GET" })
         .order("created_at", { ascending: false }),
       supabase
         .from("referral_earnings")
-        .select("*, packages(name,tier)")
+        .select("*")
         .eq("referrer_id", userId)
         .order("created_at", { ascending: false }),
     ]);
     // 2nd-level indirect
     const directIds = (direct.data ?? []).map((d) => d.id);
     let indirect: Array<{ id: string; full_name: string | null }> = [];
+    let tradeRows: any[] = [];
     if (directIds.length) {
-      const { data } = await supabase
+      const [{ data }, { data: trades }] = await Promise.all([
+        supabase
         .from("profiles")
         .select("id, full_name")
-        .in("referred_by", directIds);
+          .in("referred_by", directIds),
+        supabase.from("copy_trades").select("id,user_id,amount,total_profit_paid,status").in("user_id", directIds),
+      ]);
       indirect = data ?? [];
+      tradeRows = trades ?? [];
     }
     const totalEarned = (earnings.data ?? []).reduce((s, e) => s + Number(e.amount), 0);
+    const earnedByUser = (earnings.data ?? []).reduce<Record<string, number>>((acc, row: any) => {
+      acc[row.referred_user_id] = (acc[row.referred_user_id] ?? 0) + Number(row.amount ?? 0);
+      return acc;
+    }, {});
+    const tradesByUser = tradeRows.reduce<Record<string, { count: number; amount: number; profit: number }>>(
+      (acc, row: any) => {
+        const item = acc[row.user_id] ?? { count: 0, amount: 0, profit: 0 };
+        item.count += 1;
+        item.amount += Number(row.amount ?? 0);
+        item.profit += Number(row.total_profit_paid ?? 0);
+        acc[row.user_id] = item;
+        return acc;
+      },
+      {},
+    );
     return {
       referralCode: profile.data?.referral_code ?? "",
-      directReferrals: direct.data ?? [],
+      directReferrals: (direct.data ?? []).map((ref: any) => ({
+        ...ref,
+        trade_count: tradesByUser[ref.id]?.count ?? 0,
+        traded_amount: tradesByUser[ref.id]?.amount ?? 0,
+        trade_profit: tradesByUser[ref.id]?.profit ?? 0,
+        earned_from_trades: earnedByUser[ref.id] ?? 0,
+      })),
       indirectCount: indirect.length,
       earnings: earnings.data ?? [],
       totalEarned,
@@ -910,6 +1040,8 @@ export const updateProfile = createServerFn({ method: "POST" })
     if (error) throw error;
     return { ok: true };
   });
+
+export const getTransactions = getClientTransactions;
 
 export const submitKycVerification = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])

@@ -119,19 +119,18 @@ function Page() {
           <div className="grid gap-3 md:grid-cols-3">
             <Stat
               icon={ArrowUpFromLine}
-              label="Daily expected"
-              value={fmt(
-                data.window30d?.expectedOutflow?.daily ?? data.expectedOutflow?.daily ?? 0,
-              )}
+              label="Open trade profit"
+              value={fmt(data.expectedOutflow?.daily ?? 0)}
+              hint="Profit exposure from open copy trades"
             />
             <Stat
               icon={ArrowUpFromLine}
-              label="Weekly expected"
+              label="7-day projection"
               value={fmt(data.expectedOutflow?.weekly ?? 0)}
             />
             <Stat
               icon={ArrowUpFromLine}
-              label="Monthly expected"
+              label="30-day projection"
               value={fmt(data.expectedOutflow?.monthly ?? 0)}
             />
           </div>

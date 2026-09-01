@@ -1,104 +1,71 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Copy, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  adminDeletePackage,
+  adminDeleteCopyTradeAnalyst,
   adminGenerateCopyTradeSignal,
   adminGetCopyTrading,
-  adminGetPackages,
-  adminListPackagePurchases,
-  adminUpsertPackage,
+  adminUpsertCopyTradeAnalyst,
 } from "@/lib/admin.functions";
 import { requireAdminRoute } from "@/lib/admin-route";
 
 export const Route = createFileRoute("/_authenticated/admin/packages")({
   beforeLoad: requireAdminRoute,
-  component: PackagesPage,
+  component: CopyTradingAdminPage,
 });
 
-type PkgForm = {
-  id?: string;
-  code: string;
-  name: string;
-  tier: "bronze" | "silver" | "gold" | "diamond" | "platinum";
-  price: number;
-  daily_payout: number;
-  duration_days: number;
-  referral_bonus: number;
-  sort_order: number;
-  active: boolean;
-  payout_mode?: "locked" | "daily";
-  maturity_return_rate?: number;
-};
-
-const empty: PkgForm = {
-  code: "",
+const emptyAnalyst = {
   name: "",
-  tier: "bronze",
-  price: 0,
-  daily_payout: 0,
-  duration_days: 60,
-  referral_bonus: 0,
-  sort_order: 0,
+  title: "Portfolio Manager",
+  avatar_url: "",
+  bio: "",
+  one_day_return_rate: 0.02,
+  seven_day_roi: 0.14,
+  follow_period_days: null as number | null,
+  commission_rate: 0,
+  min_copy_amount: 1,
+  max_copy_amount: null as number | null,
   active: true,
-  payout_mode: "daily",
-  maturity_return_rate: 1,
+  sort_order: 0,
 };
 
-function PackagesPage() {
+function CopyTradingAdminPage() {
   const qc = useQueryClient();
-  const listFn = useServerFn(adminGetPackages);
-  const purchasesFn = useServerFn(adminListPackagePurchases);
   const copyTradingFn = useServerFn(adminGetCopyTrading);
   const generateSignalFn = useServerFn(adminGenerateCopyTradeSignal);
-  const upsertFn = useServerFn(adminUpsertPackage);
-  const deleteFn = useServerFn(adminDeletePackage);
-  const { data } = useQuery({ queryKey: ["admin-packages"], queryFn: () => listFn() });
-  const { data: purchases } = useQuery({
-    queryKey: ["admin-package-purchases"],
-    queryFn: () => purchasesFn(),
-  });
-  const { data: copyTrading } = useQuery({
-    queryKey: ["admin-copy-trading"],
-    queryFn: () => copyTradingFn(),
-  });
-  const [form, setForm] = useState<PkgForm>(empty);
-  const activeCount = (purchases ?? []).filter((p: any) => p.real_status === "active").length;
-  const depletedCount = (purchases ?? []).filter((p: any) => p.real_status === "depleted").length;
-  const completedCount = (purchases ?? []).filter((p: any) => p.real_status === "completed").length;
-  const expectedDaily = (purchases ?? [])
-    .filter((p: any) => p.counts_expected_outflow)
-    .reduce((sum: number, p: any) => sum + Number(p.packages?.daily_payout ?? 0), 0);
+  const upsertAnalystFn = useServerFn(adminUpsertCopyTradeAnalyst);
+  const deleteAnalystFn = useServerFn(adminDeleteCopyTradeAnalyst);
+  const { data } = useQuery({ queryKey: ["admin-copy-trading"], queryFn: () => copyTradingFn() });
+  const [analystForm, setAnalystForm] = useState<any>(emptyAnalyst);
 
-  const save = useMutation({
-    mutationFn: () => upsertFn({ data: form }),
+  const refresh = () => qc.invalidateQueries({ queryKey: ["admin-copy-trading"] });
+
+  const saveAnalyst = useMutation({
+    mutationFn: () => upsertAnalystFn({ data: analystForm }),
     onSuccess: () => {
-      toast.success("Package saved");
-      setForm(empty);
-      qc.invalidateQueries({ queryKey: ["admin-packages"] });
+      toast.success("Analyst saved");
+      setAnalystForm(emptyAnalyst);
+      refresh();
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => toast.error(e.message ?? "Could not save analyst"),
   });
 
-  const remove = useMutation({
-    mutationFn: (id: string) => deleteFn({ data: { id } }),
-    onSuccess: (result: any) => {
-      toast.success(
-        result.mode === "deactivated"
-          ? "Package has purchases, so it was retired instead."
-          : "Package deleted.",
-      );
-      setForm(empty);
-      qc.invalidateQueries({ queryKey: ["admin-packages"] });
+  const deleteAnalyst = useMutation({
+    mutationFn: (id: string) => deleteAnalystFn({ data: { id } }),
+    onSuccess: () => {
+      toast.success("Analyst deleted");
+      setAnalystForm(emptyAnalyst);
+      refresh();
     },
-    onError: (e: any) => toast.error(e.message ?? "Could not delete package"),
+    onError: (e: any) => toast.error(e.message ?? "Could not delete analyst"),
   });
 
   const generateSignal = useMutation({
@@ -107,70 +74,105 @@ function PackagesPage() {
     onSuccess: (signal: any) => {
       toast.success(`Signal generated: ${signal.code}`);
       navigator.clipboard?.writeText(signal.code);
-      qc.invalidateQueries({ queryKey: ["admin-copy-trading"] });
+      refresh();
     },
     onError: (e: any) => toast.error(e.message ?? "Could not generate signal"),
   });
 
-  const selectPackage = (pkg: any) => {
-    setForm({
-      id: pkg.id,
-      code: pkg.code,
-      name: pkg.name,
-      tier: pkg.tier,
-      price: Number(pkg.price),
-      daily_payout: Number(pkg.daily_payout),
-      duration_days: Number(pkg.duration_days),
-      referral_bonus: Number(pkg.referral_bonus),
-      sort_order: Number(pkg.sort_order),
-      active: Boolean(pkg.active),
-      payout_mode: pkg.payout_mode ?? "daily",
-      maturity_return_rate: Number(pkg.maturity_return_rate ?? 1),
-    });
-  };
-
-  const handleModeChange = (mode: PkgForm["payout_mode"]) => {
-    setForm({
-      ...form,
-      payout_mode: mode,
-      duration_days: mode === "locked" ? 60 : 45,
-      daily_payout: mode === "locked" ? 0 : form.daily_payout,
-      maturity_return_rate:
-        mode === "locked" ? Math.max(form.maturity_return_rate ?? 1.3, 1.25) : 1,
-    });
-  };
-
   return (
-    <AdminShell title="Copy Trading">
-      <div className="mb-4 grid gap-4 lg:grid-cols-[360px_1fr]">
-        <div className="glass-card rounded-2xl p-4">
+    <AdminShell title="Copy Trading Console">
+      <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
+        <section className="glass-card overflow-hidden rounded-2xl">
+          <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+            <div>
+              <h2 className="text-sm font-semibold">Analyst profiles</h2>
+              <p className="text-xs text-muted-foreground">These are the profiles clients see on Copy Trading.</p>
+            </div>
+            <Button size="sm" variant="secondary" onClick={() => setAnalystForm(emptyAnalyst)}>
+              <Plus className="mr-1 h-4 w-4" /> New
+            </Button>
+          </div>
+          <div className="divide-y divide-border/50">
+            {(data?.analysts ?? []).map((analyst: any) => (
+              <div key={analyst.id} className="grid gap-3 px-4 py-4 md:grid-cols-[64px_1fr_110px_110px_120px] md:items-center">
+                <Avatar analyst={analyst} />
+                <div>
+                  <div className="font-semibold">{analyst.name}</div>
+                  <div className="text-sm text-muted-foreground">{analyst.title}</div>
+                  <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{analyst.bio}</div>
+                </div>
+                <Metric label="1-day" value={`${Number(analyst.one_day_return_rate * 100).toFixed(0)}%`} />
+                <Metric label="7-day" value={`${Number(analyst.seven_day_roi * 100).toFixed(0)}%`} />
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => setAnalystForm({
+                    ...analyst,
+                    one_day_return_rate: Number(analyst.one_day_return_rate),
+                    seven_day_roi: Number(analyst.seven_day_roi),
+                    commission_rate: Number(analyst.commission_rate),
+                    min_copy_amount: Number(analyst.min_copy_amount),
+                    max_copy_amount: analyst.max_copy_amount == null ? null : Number(analyst.max_copy_amount),
+                  })}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={() => {
+                    if (confirm(`Delete ${analyst.name}?`)) deleteAnalyst.mutate(analyst.id);
+                  }}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {(data?.analysts ?? []).length === 0 && (
+              <div className="p-8 text-center text-sm text-muted-foreground">No analyst profiles yet.</div>
+            )}
+          </div>
+        </section>
+
+        <section className="glass-card rounded-2xl p-4">
+          <h2 className="text-sm font-semibold">{analystForm.id ? "Edit analyst" : "New analyst"}</h2>
+          <div className="mt-3 space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Name" value={analystForm.name} onChange={(v) => setAnalystForm({ ...analystForm, name: v })} />
+              <Field label="Title" value={analystForm.title} onChange={(v) => setAnalystForm({ ...analystForm, title: v })} />
+            </div>
+            <Field label="Profile picture URL" value={analystForm.avatar_url ?? ""} onChange={(v) => setAnalystForm({ ...analystForm, avatar_url: v })} />
+            <div>
+              <Label>Bio</Label>
+              <Textarea value={analystForm.bio} onChange={(e) => setAnalystForm({ ...analystForm, bio: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <NumberField label="1-day return" value={analystForm.one_day_return_rate} step="0.01" onChange={(v) => setAnalystForm({ ...analystForm, one_day_return_rate: v })} />
+              <NumberField label="7-day ROI" value={analystForm.seven_day_roi} step="0.01" onChange={(v) => setAnalystForm({ ...analystForm, seven_day_roi: v })} />
+              <NumberField label="Commission" value={analystForm.commission_rate} step="0.01" onChange={(v) => setAnalystForm({ ...analystForm, commission_rate: v })} />
+              <NumberField label="Min amount" value={analystForm.min_copy_amount} onChange={(v) => setAnalystForm({ ...analystForm, min_copy_amount: v })} />
+              <NumberField label="Max amount" value={analystForm.max_copy_amount ?? 0} onChange={(v) => setAnalystForm({ ...analystForm, max_copy_amount: v || null })} />
+              <NumberField label="Sort order" value={analystForm.sort_order} onChange={(v) => setAnalystForm({ ...analystForm, sort_order: v })} />
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={analystForm.active} onChange={(e) => setAnalystForm({ ...analystForm, active: e.target.checked })} />
+              Active
+            </label>
+            <Button onClick={() => saveAnalyst.mutate()} disabled={saveAnalyst.isPending} className="w-full gap-2 gradient-gold">
+              <Save className="h-4 w-4" /> {saveAnalyst.isPending ? "Saving..." : "Save analyst"}
+            </Button>
+          </div>
+        </section>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[360px_1fr]">
+        <section className="glass-card rounded-2xl p-4">
           <div className="mb-3 flex items-center gap-2">
             <SlidersHorizontal className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-semibold">Generate signal codes</h3>
+            <h2 className="text-sm font-semibold">Generate signal codes</h2>
           </div>
           <div className="grid gap-2">
-            <SignalButton
-              label="Daily 30-minute"
-              hint="Up to 4 codes per day"
-              onClick={() => generateSignal.mutate("daily")}
-              disabled={generateSignal.isPending}
-            />
-            <SignalButton
-              label="7-day locked"
-              hint="One active code at a time"
-              onClick={() => generateSignal.mutate("locked7")}
-              disabled={generateSignal.isPending}
-            />
-            <SignalButton
-              label="30-day locked"
-              hint="One active code at a time"
-              onClick={() => generateSignal.mutate("locked30")}
-              disabled={generateSignal.isPending}
-            />
+            <SignalButton label="Daily 30-minute" hint="Up to 4 codes per day" onClick={() => generateSignal.mutate("daily")} disabled={generateSignal.isPending} />
+            <SignalButton label="7-day locked" hint="One active code at a time" onClick={() => generateSignal.mutate("locked7")} disabled={generateSignal.isPending} />
+            <SignalButton label="30-day locked" hint="One active code at a time" onClick={() => generateSignal.mutate("locked30")} disabled={generateSignal.isPending} />
           </div>
-        </div>
+        </section>
 
-        <div className="glass-card overflow-hidden rounded-2xl">
+        <section className="glass-card overflow-hidden rounded-2xl">
           <div className="grid grid-cols-[112px_86px_1fr_96px_88px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
             <div>Code</div>
             <div>Type</div>
@@ -178,64 +180,35 @@ function PackagesPage() {
             <div>Status</div>
             <div>Copy</div>
           </div>
-          {(copyTrading?.signals ?? []).slice(0, 8).map((signal: any) => {
+          {(data?.signals ?? []).slice(0, 12).map((signal: any) => {
             const active = signal.active && new Date(signal.expires_at).getTime() > Date.now();
             return (
-              <div
-                key={signal.id}
-                className="grid grid-cols-[112px_86px_1fr_96px_88px] items-center gap-2 border-b border-border/40 px-4 py-3 text-sm"
-              >
+              <div key={signal.id} className="grid grid-cols-[112px_86px_1fr_96px_88px] items-center gap-2 border-b border-border/40 px-4 py-3 text-sm">
                 <div className="font-mono font-semibold">{signal.code}</div>
-                <div className="text-xs capitalize text-primary">
-                  {String(signal.trade_type).replace("locked", "locked ")}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {new Date(signal.expires_at).toLocaleString()}
-                </div>
-                <div>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] uppercase ${
-                      active ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    {active ? "Active" : "Expired"}
-                  </span>
-                </div>
-                <button
-                  className="inline-flex w-fit items-center gap-1 rounded-md bg-primary/15 px-2 py-1 text-xs text-primary"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(signal.code);
-                    toast.success("Copied");
-                  }}
-                >
+                <div className="text-xs capitalize text-primary">{String(signal.trade_type).replace("locked", "locked ")}</div>
+                <div className="text-xs text-muted-foreground">{new Date(signal.expires_at).toLocaleString()}</div>
+                <StatusPill status={active ? "active" : "expired"} />
+                <button className="inline-flex w-fit items-center gap-1 rounded-md bg-primary/15 px-2 py-1 text-xs text-primary" onClick={() => {
+                  navigator.clipboard?.writeText(signal.code);
+                  toast.success("Copied");
+                }}>
                   <Copy className="h-3 w-3" /> Copy
                 </button>
               </div>
             );
           })}
-          {(copyTrading?.signals ?? []).length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              No copy trading signals generated yet.
-            </div>
-          ) : null}
-        </div>
+        </section>
       </div>
 
-      <div className="mb-4 glass-card overflow-hidden rounded-2xl">
+      <section className="mt-4 glass-card overflow-hidden rounded-2xl">
         <div className="flex flex-col gap-3 border-b border-border/60 px-4 py-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h3 className="text-sm font-semibold">Copy trading ledger</h3>
+            <h2 className="text-sm font-semibold">Copy trading ledger</h2>
             <div className="text-xs text-muted-foreground">
-              Open {copyTrading?.summary?.openTrades ?? 0} - Won{" "}
-              {copyTrading?.summary?.wonTrades ?? 0} - Lost{" "}
-              {copyTrading?.summary?.lostTrades ?? 0}
+              Open {data?.summary?.openTrades ?? 0} - Won {data?.summary?.wonTrades ?? 0} - Lost {data?.summary?.lostTrades ?? 0}
             </div>
           </div>
-          <MiniStat
-            label="Open profit exposure"
-            value={`KES ${Number(copyTrading?.summary?.openDailyOutflow ?? 0).toLocaleString()}`}
-            tone="text-primary"
-          />
+          <Metric label="Open profit exposure" value={`KES ${Number(data?.summary?.openDailyOutflow ?? 0).toLocaleString()}`} />
         </div>
         <div className="hidden grid-cols-[1.2fr_96px_88px_96px_1fr_82px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground lg:grid">
           <div>Client</div>
@@ -245,335 +218,62 @@ function PackagesPage() {
           <div>Closes</div>
           <div>Status</div>
         </div>
-        {(copyTrading?.trades ?? []).slice(0, 20).map((trade: any) => (
-          <div
-            key={trade.id}
-            className="grid gap-2 border-b border-border/40 px-4 py-3 text-sm lg:grid-cols-[1.2fr_96px_88px_96px_1fr_82px] lg:items-center"
-          >
+        {(data?.trades ?? []).map((trade: any) => (
+          <div key={trade.id} className="grid gap-2 border-b border-border/40 px-4 py-3 text-sm lg:grid-cols-[1.2fr_96px_88px_96px_1fr_82px] lg:items-center">
             <div>
               <div className="font-medium">{trade.profile?.full_name ?? "Unnamed client"}</div>
-              <div className="text-[11px] text-muted-foreground">
-                {trade.profile?.phone ?? trade.profile?.email ?? trade.user_id}
-              </div>
+              <div className="text-[11px] text-muted-foreground">{trade.profile?.phone ?? trade.profile?.email ?? trade.user_id}</div>
             </div>
-            <div className="text-xs capitalize text-primary">
-              {String(trade.trade_type).replace("locked", "locked ")}
-            </div>
+            <div className="text-xs capitalize text-primary">{String(trade.trade_type).replace("locked", "locked ")}</div>
             <div>KES {Number(trade.amount ?? 0).toLocaleString()}</div>
             <div className="font-mono text-xs">{trade.code_entered}</div>
-            <div className="text-xs text-muted-foreground">
-              {new Date(trade.closes_at).toLocaleString()}
-            </div>
+            <div className="text-xs text-muted-foreground">{new Date(trade.closes_at).toLocaleString()}</div>
             <StatusPill status={trade.status} />
           </div>
         ))}
-        {(copyTrading?.trades ?? []).length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            No copy trades yet.
-          </div>
-        ) : null}
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
-        <div className="glass-card overflow-hidden rounded-2xl">
-          <div className="grid grid-cols-[76px_1fr_86px_96px_86px_78px_112px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
-            <div>Code</div>
-            <div>Name</div>
-            <div>Mode</div>
-            <div>Price</div>
-            <div>Daily</div>
-            <div>Status</div>
-            <div>Actions</div>
-          </div>
-          {(data ?? []).map((p: any) => (
-            <div
-              key={p.id}
-              className="grid grid-cols-[76px_1fr_86px_96px_86px_78px_112px] items-center gap-2 border-b border-border/40 px-4 py-3 text-left text-sm hover:bg-muted/40"
-            >
-              <div className="font-semibold">{p.code}</div>
-              <div>
-                <div className="font-medium">{p.name}</div>
-                <div className="text-[11px] text-muted-foreground">
-                  {p.tier} - {Number(p.duration_days)} days - referral KES{" "}
-                  {Number(p.referral_bonus).toLocaleString()}
-                </div>
-              </div>
-              <div className="text-xs capitalize text-primary">{p.payout_mode ?? "daily"}</div>
-              <div>{Number(p.price).toLocaleString()}</div>
-              <div>{Number(p.daily_payout).toLocaleString()}</div>
-              <div>{p.active ? "Live" : "Retired"}</div>
-              <div className="flex items-center gap-1">
-                <Button size="sm" variant="secondary" onClick={() => selectPackage(p)}>
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  disabled={remove.isPending}
-                  onClick={() => {
-                    if (confirm(`Delete ${p.name}? Packages with purchases will be retired.`)) {
-                      remove.mutate(p.id);
-                    }
-                  }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="glass-card rounded-2xl p-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">{form.id ? "Edit" : "New"} package</h3>
-            {form.id && (
-              <Button size="sm" variant="secondary" onClick={() => setForm(empty)}>
-                <Plus className="mr-1 h-3.5 w-3.5" />
-                New
-              </Button>
-            )}
-          </div>
-          <div className="mt-3 space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label>Code</Label>
-                <Input
-                  value={form.code}
-                  onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
-                />
-              </div>
-              <div>
-                <Label>Tier</Label>
-                <select
-                  className="w-full rounded-md border border-input bg-input px-3 py-2 text-sm"
-                  value={form.tier}
-                  onChange={(e) => setForm({ ...form, tier: e.target.value as PkgForm["tier"] })}
-                >
-                  {["bronze", "silver", "gold", "diamond", "platinum"].map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label>Payout mode</Label>
-                <select
-                  className="w-full rounded-md border border-input bg-input px-3 py-2 text-sm"
-                  value={form.payout_mode ?? "daily"}
-                  onChange={(e) => handleModeChange(e.target.value as PkgForm["payout_mode"])}
-                >
-                  <option value="daily">Daily</option>
-                  <option value="locked">Locked</option>
-                </select>
-              </div>
-              <div>
-                <Label>Maturity rate</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="1"
-                  value={form.maturity_return_rate ?? 1}
-                  onChange={(e) =>
-                    setForm({ ...form, maturity_return_rate: Number(e.target.value) })
-                  }
-                />
-              </div>
-            </div>
-            <div>
-              <Label>Name</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label>Price</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={form.price}
-                  onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>Daily payout</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={form.daily_payout}
-                  disabled={form.payout_mode === "locked"}
-                  onChange={(e) => setForm({ ...form, daily_payout: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>Duration (days)</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={form.duration_days}
-                  onChange={(e) => setForm({ ...form, duration_days: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>Referral bonus</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={form.referral_bonus}
-                  onChange={(e) => setForm({ ...form, referral_bonus: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>Sort order</Label>
-                <Input
-                  type="number"
-                  value={form.sort_order}
-                  onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })}
-                />
-              </div>
-              <div className="flex items-end">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.active}
-                    onChange={(e) => setForm({ ...form, active: e.target.checked })}
-                  />{" "}
-                  Active
-                </label>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                onClick={() => save.mutate()}
-                disabled={save.isPending}
-                className="flex-1 gradient-gold"
-              >
-                {save.isPending ? "Saving..." : form.id ? "Save changes" : "Create package"}
-              </Button>
-              <Button variant="secondary" onClick={() => setForm(empty)}>
-                Clear
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 glass-card overflow-hidden rounded-2xl">
-        <div className="flex flex-col gap-3 border-b border-border/60 px-4 py-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h3 className="text-sm font-semibold">Client package ledger</h3>
-            <div className="text-xs text-muted-foreground">
-              Legacy package subscriptions count in expected outflow only while their expiry date is still ahead.
-            </div>
-          </div>
-          <div className="grid grid-cols-4 gap-2 text-center text-[11px]">
-            <MiniStat label="Active" value={activeCount} tone="text-success" />
-            <MiniStat label="Depleted" value={depletedCount} tone="text-warning" />
-            <MiniStat label="Completed" value={completedCount} />
-            <MiniStat
-              label="Daily outflow"
-              value={`KES ${expectedDaily.toLocaleString()}`}
-              tone="text-primary"
-            />
-          </div>
-        </div>
-        <div className="hidden grid-cols-[1.3fr_1.2fr_82px_82px_96px_96px_90px_104px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground lg:grid">
-          <div>Client</div>
-          <div>Package</div>
-          <div>Mode</div>
-          <div>Status</div>
-          <div>Purchased</div>
-          <div>Expires</div>
-          <div>Paid out</div>
-          <div>Outflow</div>
-        </div>
-        {(purchases ?? []).length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            No package purchases yet.
-          </div>
-        ) : (
-          (purchases ?? []).map((p: any) => (
-            <div
-              key={p.id}
-              className="grid gap-2 border-b border-border/40 px-4 py-3 text-sm lg:grid-cols-[1.3fr_1.2fr_82px_82px_96px_96px_90px_104px] lg:items-center"
-            >
-              <div>
-                <div className="font-medium">{p.profile?.full_name ?? "Unnamed client"}</div>
-                <div className="text-[11px] text-muted-foreground">
-                  {p.profile?.phone ?? p.profile?.email ?? p.user_id}
-                </div>
-              </div>
-              <div>
-                <div className="font-medium">
-                  {p.packages?.code} - {p.packages?.name}
-                </div>
-                <div className="text-[11px] text-muted-foreground">
-                  KES {Number(p.packages?.price ?? 0).toLocaleString()} -{" "}
-                  {Number(p.packages?.duration_days ?? 0)} days
-                </div>
-              </div>
-              <div className="text-xs capitalize text-primary">
-                {p.packages?.payout_mode ?? "daily"}
-              </div>
-              <div>
-                <StatusPill status={p.real_status} />
-                {p.real_status === "active" ? (
-                  <div className="mt-1 text-[11px] text-muted-foreground">
-                    {p.remaining_days}d left
-                  </div>
-                ) : null}
-              </div>
-              <DateCell value={p.purchased_at} />
-              <DateCell value={p.expires_at} />
-              <div>KES {Number(p.total_paid_out ?? 0).toLocaleString()}</div>
-              <div
-                className={
-                  p.counts_expected_outflow ? "font-semibold text-success" : "text-muted-foreground"
-                }
-              >
-                {p.counts_expected_outflow
-                  ? `KES ${Number(p.packages?.daily_payout ?? 0).toLocaleString()}/day`
-                  : "No"}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+      </section>
     </AdminShell>
   );
 }
 
-function MiniStat({ label, value, tone = "text-foreground" }: any) {
+function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
-    <div className="rounded-lg bg-muted/40 px-3 py-2">
-      <div className="uppercase text-muted-foreground">{label}</div>
-      <div className={`font-semibold ${tone}`}>{value}</div>
+    <div>
+      <Label>{label}</Label>
+      <Input value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }
 
-function SignalButton({
-  label,
-  hint,
-  onClick,
-  disabled,
-}: {
-  label: string;
-  hint: string;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
+function NumberField({ label, value, onChange, step = "1" }: { label: string; value: number; onChange: (value: number) => void; step?: string }) {
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="flex items-center justify-between rounded-xl border border-border bg-card px-3 py-3 text-left transition hover:border-primary/50 disabled:opacity-60"
-    >
+    <div>
+      <Label>{label}</Label>
+      <Input type="number" step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </div>
+  );
+}
+
+function Avatar({ analyst }: { analyst: any }) {
+  return (
+    <div className="grid h-14 w-14 place-items-center overflow-hidden rounded-full bg-muted text-lg font-bold">
+      {analyst.avatar_url ? <img src={analyst.avatar_url} alt={analyst.name} className="h-full w-full object-cover" /> : analyst.name.slice(0, 1)}
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-muted/40 px-3 py-2 text-sm">
+      <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
+      <div className="font-semibold text-success">{value}</div>
+    </div>
+  );
+}
+
+function SignalButton({ label, hint, onClick, disabled }: { label: string; hint: string; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button type="button" disabled={disabled} onClick={onClick} className="flex items-center justify-between rounded-xl border border-border bg-card px-3 py-3 text-left transition hover:border-primary/50 disabled:opacity-60">
       <span>
         <span className="block text-sm font-semibold">{label}</span>
         <span className="text-xs text-muted-foreground">{hint}</span>
@@ -584,24 +284,6 @@ function SignalButton({
 }
 
 function StatusPill({ status }: { status: string }) {
-  const cls =
-    status === "active"
-      ? "bg-success/15 text-success"
-      : status === "won"
-        ? "bg-success/15 text-success"
-        : status === "open"
-          ? "bg-primary/15 text-primary"
-          : status === "lost"
-            ? "bg-destructive/15 text-destructive"
-      : status === "depleted"
-        ? "bg-warning/15 text-warning"
-        : "bg-muted text-muted-foreground";
-
-  return <span className={`rounded-full px-2 py-0.5 text-[10px] uppercase ${cls}`}>{status}</span>;
-}
-
-function DateCell({ value }: { value: string }) {
-  return (
-    <div className="text-xs text-muted-foreground">{new Date(value).toLocaleDateString()}</div>
-  );
+  const cls = status === "active" || status === "won" ? "bg-success/15 text-success" : status === "open" ? "bg-primary/15 text-primary" : status === "lost" ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground";
+  return <span className={`w-fit rounded-full px-2 py-0.5 text-[10px] uppercase ${cls}`}>{status}</span>;
 }

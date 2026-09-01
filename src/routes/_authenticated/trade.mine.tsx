@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, ChartNoAxesCombined, CheckCircle2, Clock, LockKeyhole, Search, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, ChartNoAxesCombined, Check, CheckCircle2, Clock, LockKeyhole, Search, SlidersHorizontal } from "lucide-react";
 import { applyCopyTrade, getCopyTradingData, type CopyTradeType } from "@/lib/app.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ export const Route = createFileRoute("/_authenticated/trade/mine")({ component: 
 const fmt = (n: any) =>
   `KES ${Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
-const analysts = [
+const fallbackAnalysts = [
   {
     name: "Carl Grindan",
     role: "Portfolio Manager",
@@ -52,7 +52,32 @@ function CopyTradingPage() {
   const dataFn = useServerFn(getCopyTradingData);
   const applyFn = useServerFn(applyCopyTrade);
   const { data } = useQuery({ queryKey: ["copy-trading"], queryFn: () => dataFn() });
-  const [selectedAnalyst, setSelectedAnalyst] = useState<(typeof analysts)[number] | null>(null);
+  const analysts = (data?.analysts?.length ? data.analysts : fallbackAnalysts).map((analyst: any, index: number) => ({
+    name: analyst.name,
+    role: analyst.title ?? analyst.role ?? "Portfolio Manager",
+    oneDay: analyst.oneDay ?? `+${Number(analyst.one_day_return_rate ?? 0.02) * 100}%`,
+    sevenDay: analyst.sevenDay ?? `+${Number(analyst.seven_day_roi ?? 0.14) * 100}%`,
+    color: ["bg-sky-600", "bg-zinc-700", "bg-rose-700", "bg-emerald-700"][index % 4],
+    avatar_url: analyst.avatar_url,
+    bio: analyst.bio,
+    min_copy_amount: analyst.min_copy_amount,
+    max_copy_amount: analyst.max_copy_amount,
+    commission_rate: analyst.commission_rate,
+  }));
+  const manualSignal = {
+    name: "Signal Trading",
+    role: "Manual Code",
+    oneDay: "+1.6%",
+    sevenDay: "+11.2%",
+    color: "bg-foreground",
+    avatar_url: "",
+    bio: "Enter a signal code from the admin signal desk and choose your copy trading cycle.",
+    min_copy_amount: 1,
+    max_copy_amount: null,
+    commission_rate: 0,
+  };
+  const [selectedAnalyst, setSelectedAnalyst] = useState<any | null>(null);
+  const [view, setView] = useState<"analysts" | "my" | "partners">("analysts");
   const [query, setQuery] = useState("");
   const [tradeType, setTradeType] = useState<CopyTradeType>("daily");
   const [code, setCode] = useState("");
@@ -60,7 +85,7 @@ function CopyTradingPage() {
   const selected = tradeTypes.find((item) => item.value === tradeType)!;
   const expectedProfit = Number(amount || 0) * Number(data?.profitRate ?? 0.016);
   const kycApproved = !!data?.kycApproved;
-  const visibleAnalysts = analysts.filter((a) =>
+  const visibleAnalysts = analysts.filter((a: any) =>
     `${a.name} ${a.role}`.toLowerCase().includes(query.toLowerCase()),
   );
 
@@ -163,7 +188,7 @@ function CopyTradingPage() {
               </div>
             </div>
             <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-              <span className="grid h-5 w-5 place-items-center rounded-full bg-foreground text-background">✓</span>
+              <span className="grid h-5 w-5 place-items-center rounded-full bg-foreground text-background"><Check className="h-3 w-3" /></span>
               I have read and agree Copy Trading Agreement
             </div>
             <Button
@@ -182,12 +207,20 @@ function CopyTradingPage() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-1 rounded-2xl bg-zinc-950 p-2 text-sm font-semibold text-zinc-400">
-        <button className="flex items-center justify-center gap-2 rounded-xl bg-zinc-800 py-3 text-white">
+        <button type="button" onClick={() => setView("analysts")} className={`flex items-center justify-center gap-2 rounded-xl py-3 ${view === "analysts" ? "bg-zinc-800 text-white" : ""}`}>
           <ChartNoAxesCombined className="h-4 w-4" /> P&L Details
         </button>
-        <button className="py-3">My Copy Trading</button>
-        <button className="py-3">Partner Details</button>
+        <button type="button" onClick={() => setView("my")} className={`py-3 ${view === "my" ? "rounded-xl bg-zinc-800 text-white" : ""}`}>My Copy Trading</button>
+        <button type="button" onClick={() => setView("partners")} className={`py-3 ${view === "partners" ? "rounded-xl bg-zinc-800 text-white" : ""}`}>Partner Details</button>
       </div>
+
+      <button
+        type="button"
+        onClick={() => setSelectedAnalyst(manualSignal)}
+        className="flex w-full items-center justify-center gap-2 rounded-full bg-foreground px-4 py-3 text-sm font-semibold text-background"
+      >
+        <SlidersHorizontal className="h-4 w-4" /> Enter signal code
+      </button>
 
       <div className="relative">
         <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -196,12 +229,12 @@ function CopyTradingPage() {
 
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold">Follow Analyst</h2>
-        <span className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background">
-          <SlidersHorizontal className="h-4 w-4" /> signal
-        </span>
+        <button type="button" onClick={() => setSelectedAnalyst(manualSignal)} className="inline-flex items-center gap-2 rounded-full bg-muted px-4 py-2 text-sm font-semibold">
+          <SlidersHorizontal className="h-4 w-4" /> Signal
+        </button>
       </div>
 
-      {visibleAnalysts.map((analyst) => (
+      {view === "analysts" && visibleAnalysts.map((analyst: any) => (
         <article key={analyst.name} className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-start gap-3">
             <AnalystAvatar analyst={analyst} />
@@ -226,7 +259,28 @@ function CopyTradingPage() {
         </article>
       ))}
 
-      <section className="glass-card rounded-2xl p-4">
+      {view === "partners" && (
+        <section className="glass-card rounded-2xl p-4">
+          <h2 className="mb-3 text-sm font-semibold">Partner Details</h2>
+          <div className="space-y-3">
+            {analysts.map((analyst: any) => (
+              <button key={analyst.name} onClick={() => setSelectedAnalyst(analyst)} className="flex w-full items-center gap-3 rounded-xl bg-card p-3 text-left">
+                <AnalystAvatar analyst={analyst} />
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold">{analyst.name}</div>
+                  <div className="text-xs text-muted-foreground">{analyst.bio}</div>
+                </div>
+                <div className="text-right text-xs">
+                  <div className="font-bold text-success">{analyst.sevenDay}</div>
+                  <div className="text-muted-foreground">7-day ROI</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {view === "my" && <section className="glass-card rounded-2xl p-4">
         <h2 className="mb-3 text-sm font-semibold">My Copy Trading</h2>
         {(data?.trades ?? []).length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No copy trades yet.</div>
@@ -249,15 +303,15 @@ function CopyTradingPage() {
             ))}
           </div>
         )}
-      </section>
+      </section>}
     </div>
   );
 }
 
-function AnalystAvatar({ analyst, size = "sm" }: { analyst: (typeof analysts)[number]; size?: "sm" | "lg" }) {
+function AnalystAvatar({ analyst, size = "sm" }: { analyst: any; size?: "sm" | "lg" }) {
   return (
     <div className={`grid shrink-0 place-items-center rounded-full ${analyst.color} text-white ${size === "lg" ? "h-24 w-24 text-3xl" : "h-14 w-14 text-lg"} font-black`}>
-      {analyst.name.slice(0, 1)}
+      {analyst.avatar_url ? <img src={analyst.avatar_url} alt={analyst.name} className="h-full w-full rounded-full object-cover" /> : analyst.name.slice(0, 1)}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedWalletRouteImport } from './routes/_authenticated/wallet'
+import { Route as AuthenticatedTransactionsRouteImport } from './routes/_authenticated/transactions'
 import { Route as AuthenticatedTradeRouteImport } from './routes/_authenticated/trade'
 import { Route as AuthenticatedTeamRouteImport } from './routes/_authenticated/team'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
@@ -59,6 +60,12 @@ const AuthenticatedWalletRoute = AuthenticatedWalletRouteImport.update({
   path: '/wallet',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedTransactionsRoute =
+  AuthenticatedTransactionsRouteImport.update({
+    id: '/transactions',
+    path: '/transactions',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedTradeRoute = AuthenticatedTradeRouteImport.update({
   id: '/trade',
   path: '/trade',
@@ -209,6 +216,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/team': typeof AuthenticatedTeamRoute
   '/trade': typeof AuthenticatedTradeRouteWithChildren
+  '/transactions': typeof AuthenticatedTransactionsRoute
   '/wallet': typeof AuthenticatedWalletRoute
   '/admin/accounts': typeof AuthenticatedAdminAccountsRoute
   '/admin/clients': typeof AuthenticatedAdminClientsRoute
@@ -239,6 +247,7 @@ export interface FileRoutesByTo {
   '/my': typeof AuthenticatedMyRouteWithChildren
   '/settings': typeof AuthenticatedSettingsRoute
   '/team': typeof AuthenticatedTeamRoute
+  '/transactions': typeof AuthenticatedTransactionsRoute
   '/wallet': typeof AuthenticatedWalletRoute
   '/admin/accounts': typeof AuthenticatedAdminAccountsRoute
   '/admin/clients': typeof AuthenticatedAdminClientsRoute
@@ -272,6 +281,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/team': typeof AuthenticatedTeamRoute
   '/_authenticated/trade': typeof AuthenticatedTradeRouteWithChildren
+  '/_authenticated/transactions': typeof AuthenticatedTransactionsRoute
   '/_authenticated/wallet': typeof AuthenticatedWalletRoute
   '/_authenticated/admin/accounts': typeof AuthenticatedAdminAccountsRoute
   '/_authenticated/admin/clients': typeof AuthenticatedAdminClientsRoute
@@ -305,6 +315,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/team'
     | '/trade'
+    | '/transactions'
     | '/wallet'
     | '/admin/accounts'
     | '/admin/clients'
@@ -335,6 +346,7 @@ export interface FileRouteTypes {
     | '/my'
     | '/settings'
     | '/team'
+    | '/transactions'
     | '/wallet'
     | '/admin/accounts'
     | '/admin/clients'
@@ -367,6 +379,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/team'
     | '/_authenticated/trade'
+    | '/_authenticated/transactions'
     | '/_authenticated/wallet'
     | '/_authenticated/admin/accounts'
     | '/_authenticated/admin/clients'
@@ -428,6 +441,13 @@ declare module '@tanstack/react-router' {
       path: '/wallet'
       fullPath: '/wallet'
       preLoaderRoute: typeof AuthenticatedWalletRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/transactions': {
+      id: '/_authenticated/transactions'
+      path: '/transactions'
+      fullPath: '/transactions'
+      preLoaderRoute: typeof AuthenticatedTransactionsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/trade': {
@@ -652,6 +672,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTeamRoute: typeof AuthenticatedTeamRoute
   AuthenticatedTradeRoute: typeof AuthenticatedTradeRouteWithChildren
+  AuthenticatedTransactionsRoute: typeof AuthenticatedTransactionsRoute
   AuthenticatedWalletRoute: typeof AuthenticatedWalletRoute
   AuthenticatedAdminAccountsRoute: typeof AuthenticatedAdminAccountsRoute
   AuthenticatedAdminClientsRoute: typeof AuthenticatedAdminClientsRoute
@@ -673,6 +694,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTeamRoute: AuthenticatedTeamRoute,
   AuthenticatedTradeRoute: AuthenticatedTradeRouteWithChildren,
+  AuthenticatedTransactionsRoute: AuthenticatedTransactionsRoute,
   AuthenticatedWalletRoute: AuthenticatedWalletRoute,
   AuthenticatedAdminAccountsRoute: AuthenticatedAdminAccountsRoute,
   AuthenticatedAdminClientsRoute: AuthenticatedAdminClientsRoute,

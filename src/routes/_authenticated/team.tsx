@@ -64,13 +64,13 @@ function TeamPage() {
       </div>
 
       <div className="mt-6">
-        <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">Bonus history</h2>
+        <h2 className="mb-2 text-sm font-semibold uppercase text-muted-foreground">Direct income history</h2>
         <div className="space-y-2">
           {(data?.earnings ?? []).length === 0 && <div className="text-sm text-muted-foreground">No earnings yet.</div>}
           {(data?.earnings ?? []).map((e: any) => (
             <div key={e.id} className="flex items-center justify-between rounded-lg bg-card px-3 py-2 text-sm">
               <div>
-                <div className="font-medium">{e.packages?.name ?? "Package"}</div>
+                <div className="font-medium">{e.source === "trade_profit" ? "3% from referred trade profit" : "Direct income"}</div>
                 <div className="text-[11px] text-muted-foreground">{new Date(e.created_at).toLocaleDateString()}</div>
               </div>
               <div className="font-semibold text-success">+{fmt(e.amount)}</div>

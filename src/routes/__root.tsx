@@ -48,9 +48,14 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold text-foreground">Something went wrong</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{error.message || "Try refreshing the page."}</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {error.message || "Try refreshing the page."}
+        </p>
         <button
-          onClick={() => { router.invalidate(); reset(); }}
+          onClick={() => {
+            router.invalidate();
+            reset();
+          }}
           className="mt-6 rounded-md gradient-gold px-5 py-2.5 text-sm font-semibold"
         >
           Try again
@@ -65,10 +70,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Deriv Trading MineHub — Premium Mining Packages, Daily Payouts" },
-      { name: "description", content: "Deriv Trading MineHub — buy premium mining packages, claim daily payouts, and grow your trading team." },
+      { title: "Deriv Trading MineHub - Copy Trading Signals" },
+      {
+        name: "description",
+        content:
+          "Deriv Trading MineHub helps clients follow copy trading signals, track trades, and earn direct income from referred trade profits.",
+      },
       { property: "og:title", content: "Deriv Trading MineHub" },
-      { property: "og:description", content: "Premium mining packages with daily payouts and referral rewards." },
+      {
+        property: "og:description",
+        content:
+          "Copy trading signals, wallet transactions, KYC, and direct income from referred trade profits.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -88,7 +101,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="dark">
-      <head><HeadContent /></head>
+      <head>
+        <HeadContent />
+      </head>
       <body>
         {children}
         <Scripts />
@@ -111,7 +126,9 @@ function RootComponent() {
         router.invalidate();
         if (event !== "SIGNED_OUT") queryClient.invalidateQueries();
       });
-      return () => { data.subscription.unsubscribe(); };
+      return () => {
+        data.subscription.unsubscribe();
+      };
     } catch (error) {
       console.warn("Supabase auth listener unavailable; continuing without auth sync.", error);
       return undefined;
