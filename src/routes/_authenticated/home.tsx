@@ -28,7 +28,6 @@ function HomePage() {
   const { data, isLoading } = useQuery({ queryKey: ["dashboard"], queryFn: () => fn() });
   const { data: prof } = useQuery({ queryKey: ["profile"], queryFn: () => profFn() });
   const navigate = useNavigate();
-  const qc = useQueryClient();
 
   const wallet = data?.wallet;
   const activeCount = data?.activeTrades.length ?? 0;
@@ -126,7 +125,9 @@ function HomePage() {
                       {String(trade.trade_type).replace("locked", "locked ")}
                     </div>
                     <div className="rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary">
-                      {minutesLeft < 1440 ? `${minutesLeft}m left` : `${Math.ceil(minutesLeft / 1440)}d left`}
+                      {minutesLeft < 1440
+                        ? `${minutesLeft}m left`
+                        : `${Math.ceil(minutesLeft / 1440)}d left`}
                     </div>
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
