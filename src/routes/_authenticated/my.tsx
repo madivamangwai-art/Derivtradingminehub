@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useEffect, useState } from "react";
-import { MessageCircle, Send, Copy, Users, TrendingUp } from "lucide-react";
+import { Gift, MessageCircle, Send, Copy, Users, TrendingUp } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/my")({ component: MyPage });
 
@@ -97,7 +97,16 @@ function MyPage() {
           </span>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <TeamStat icon={Users} label="Trades" value={String((team?.directReferrals ?? []).reduce((sum: number, row: any) => sum + Number(row.trade_count ?? 0), 0))} />
+          <TeamStat
+            icon={Users}
+            label="Trades"
+            value={String(
+              (team?.directReferrals ?? []).reduce(
+                (sum: number, row: any) => sum + Number(row.trade_count ?? 0),
+                0,
+              ),
+            )}
+          />
           <TeamStat icon={TrendingUp} label="You earned" value={fmt(team?.totalEarned)} />
         </div>
         <div className="mt-3 space-y-2">
@@ -110,8 +119,12 @@ function MyPage() {
             <div key={member.id} className="rounded-xl bg-card p-3 text-sm">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate font-semibold">{member.full_name || member.email || "Unnamed client"}</div>
-                  <div className="text-[11px] text-muted-foreground">Joined {new Date(member.created_at).toLocaleDateString()}</div>
+                  <div className="truncate font-semibold">
+                    {member.full_name || member.email || "Unnamed client"}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    Joined {new Date(member.created_at).toLocaleDateString()}
+                  </div>
                 </div>
                 <div className="text-right text-xs">
                   <div className="font-bold text-success">+{fmt(member.earned_from_trades)}</div>
@@ -127,6 +140,24 @@ function MyPage() {
           ))}
         </div>
       </div>
+
+      <Link
+        to="/trade/redpacket"
+        className="mt-4 flex items-center justify-between rounded-2xl border border-border bg-card p-4"
+      >
+        <span className="flex items-center gap-3">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/15 text-primary">
+            <Gift className="h-5 w-5" />
+          </span>
+          <span>
+            <span className="block text-sm font-semibold">Red Packet</span>
+            <span className="block text-xs text-muted-foreground">
+              Claim codes or send wallet cash to others.
+            </span>
+          </span>
+        </span>
+        <span className="text-sm font-semibold text-primary">Open</span>
+      </Link>
 
       <div className="mt-4 glass-card rounded-2xl p-4">
         <h3 className="text-sm font-semibold">Community & support</h3>
@@ -162,7 +193,8 @@ function MyPage() {
   );
 }
 
-const fmt = (n: any) => `KES ${Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+const fmt = (n: any) =>
+  `KES ${Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
 function TeamStat({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
   return (

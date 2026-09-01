@@ -1,5 +1,15 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
-import { BarChart3, ChartNoAxesCombined, Home, User, LogOut, Sun, Moon, CheckCircle2, Clock3, ReceiptText } from "lucide-react";
+import {
+  BarChart3,
+  ChartNoAxesCombined,
+  Home,
+  User,
+  LogOut,
+  Sun,
+  Moon,
+  CheckCircle2,
+  Clock3,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,11 +21,18 @@ const tabs = [
   { to: "/home", label: "Home", icon: Home },
   { to: "/trade/market", label: "Market", icon: ChartNoAxesCombined },
   { to: "/trade/mine", label: "Copy Trading", icon: BarChart3 },
-  { to: "/transactions", label: "Transactions", icon: ReceiptText },
   { to: "/my", label: "My Account", icon: User },
 ] as const;
 
-export function ClientShell({ children, title, onLogoClick }: { children: ReactNode; title?: string; onLogoClick?: () => void }) {
+export function ClientShell({
+  children,
+  title,
+  onLogoClick,
+}: {
+  children: ReactNode;
+  title?: string;
+  onLogoClick?: () => void;
+}) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -47,7 +64,11 @@ export function ClientShell({ children, title, onLogoClick }: { children: ReactN
               aria-label="Profile and KYC settings"
             >
               {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt="Profile" className="h-full w-full object-cover" />
+                <img
+                  src={profile.avatar_url}
+                  alt="Profile"
+                  className="h-full w-full object-cover"
+                />
               ) : (
                 <User className="h-4 w-4 text-muted-foreground" />
               )}
@@ -58,10 +79,16 @@ export function ClientShell({ children, title, onLogoClick }: { children: ReactN
                     : "bg-warning text-foreground"
                 }`}
               >
-                {kycStatus === "approved" ? <CheckCircle2 className="h-3 w-3" /> : <Clock3 className="h-3 w-3" />}
+                {kycStatus === "approved" ? (
+                  <CheckCircle2 className="h-3 w-3" />
+                ) : (
+                  <Clock3 className="h-3 w-3" />
+                )}
               </span>
             </Link>
-            <h1 className="truncate text-lg font-semibold tracking-tight">{title ?? "Deriv Trading MineHub"}</h1>
+            <h1 className="truncate text-lg font-semibold tracking-tight">
+              {title ?? "Deriv Trading MineHub"}
+            </h1>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -69,21 +96,29 @@ export function ClientShell({ children, title, onLogoClick }: { children: ReactN
               aria-label="Deriv Trading MineHub"
               className="grid h-9 w-9 place-items-center overflow-hidden rounded-lg bg-slate-900 ring-1 ring-primary/40"
             >
-                <img
-                  src="/favicon.png"
-                  alt="MineHub"
-                  className="h-7 w-7 object-contain"
-                  onError={(e) => {
-                    const img = e.currentTarget as HTMLImageElement;
-                    img.onerror = null;
-                    img.src = "/favicon.png";
-                  }}
-                />
+              <img
+                src="/favicon.png"
+                alt="MineHub"
+                className="h-7 w-7 object-contain"
+                onError={(e) => {
+                  const img = e.currentTarget as HTMLImageElement;
+                  img.onerror = null;
+                  img.src = "/favicon.png";
+                }}
+              />
             </button>
-            <button onClick={toggle} className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Toggle theme">
+            <button
+              onClick={toggle}
+              className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Toggle theme"
+            >
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
-            <button onClick={signOut} className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Sign out">
+            <button
+              onClick={signOut}
+              className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Sign out"
+            >
               <LogOut className="h-4 w-4" />
             </button>
           </div>
@@ -91,11 +126,15 @@ export function ClientShell({ children, title, onLogoClick }: { children: ReactN
       </header>
       <main className="mx-auto max-w-lg px-4 py-4">{children}</main>
       <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/60 bg-background/95 backdrop-blur">
-        <div className="mx-auto grid max-w-lg grid-cols-5">
+        <div className="mx-auto grid max-w-lg grid-cols-4">
           {tabs.map((t) => {
             const active = path === t.to || path.startsWith(t.to + "/");
             return (
-              <Link key={t.to} to={t.to} className={`flex flex-col items-center gap-1 py-3 text-xs transition ${active ? "text-primary" : "text-muted-foreground"}`}>
+              <Link
+                key={t.to}
+                to={t.to}
+                className={`flex flex-col items-center gap-1 py-3 text-xs transition ${active ? "text-primary" : "text-muted-foreground"}`}
+              >
                 <t.icon className={`h-5 w-5 ${active ? "scale-110" : ""}`} />
                 {t.label}
               </Link>

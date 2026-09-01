@@ -3,7 +3,19 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Download, Eye, EyeOff, IdCard, ImageUp, LockKeyhole, RefreshCcw, ShieldAlert, Smartphone, User } from "lucide-react";
+import {
+  CheckCircle2,
+  Download,
+  Eye,
+  EyeOff,
+  IdCard,
+  ImageUp,
+  LockKeyhole,
+  RefreshCcw,
+  ShieldAlert,
+  Smartphone,
+  User,
+} from "lucide-react";
 import { ClientShell } from "@/components/layout/client-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -127,9 +139,18 @@ function SettingsPage() {
 
   const kyc = data?.kyc;
   const kycStatus = kyc?.status ?? "not submitted";
-  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  const isIos = /iphone|ipad|ipod/i.test(userAgent);
+  const isStandalone =
+    typeof window !== "undefined" &&
+    (window.matchMedia("(display-mode: standalone)").matches ||
+      (navigator as any).standalone === true);
 
   const installApp = async () => {
+    if (isStandalone) {
+      toast.success("MineHub is already installed.");
+      return;
+    }
     if (installPrompt) {
       await installPrompt.prompt();
       const choice = await installPrompt.userChoice;
@@ -142,7 +163,7 @@ function SettingsPage() {
       toast.info("Open Safari, tap Share, then Add to Home Screen.");
       return;
     }
-    toast.info("Your browser is not offering direct install yet. Open this site in Chrome or Edge, then try Android again.");
+    toast.info("Use your browser menu and choose Install app or Add to Home screen.");
   };
 
   return (
@@ -152,20 +173,35 @@ function SettingsPage() {
           <div className="flex items-center gap-3">
             <div className="grid h-16 w-16 place-items-center overflow-hidden rounded-full border border-border bg-card">
               {data?.profile?.avatar_url ? (
-                <img src={data.profile.avatar_url} alt="Profile" className="h-full w-full object-cover" />
+                <img
+                  src={data.profile.avatar_url}
+                  alt="Profile"
+                  className="h-full w-full object-cover"
+                />
               ) : (
                 <User className="h-6 w-6 text-muted-foreground" />
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate font-semibold">{data?.profile?.full_name || "Your profile"}</div>
+              <div className="truncate font-semibold">
+                {data?.profile?.full_name || "Your profile"}
+              </div>
               <div className="truncate text-xs text-muted-foreground">{data?.profile?.email}</div>
               <KycBadge status={kycStatus} />
             </div>
           </div>
           <div className="mt-4 flex gap-2">
-            <Input type="file" accept="image/*" onChange={(e) => setAvatarFile(e.target.files?.[0] ?? null)} />
-            <Button onClick={() => saveAvatar.mutate()} disabled={saveAvatar.isPending || !avatarFile} size="icon" aria-label="Upload profile picture">
+            <Input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setAvatarFile(e.target.files?.[0] ?? null)}
+            />
+            <Button
+              onClick={() => saveAvatar.mutate()}
+              disabled={saveAvatar.isPending || !avatarFile}
+              size="icon"
+              aria-label="Upload profile picture"
+            >
               <ImageUp className="h-4 w-4" />
             </Button>
           </div>
@@ -178,7 +214,9 @@ function SettingsPage() {
             </div>
             <div>
               <h2 className="text-sm font-semibold">Change password</h2>
-              <p className="mt-1 text-xs text-muted-foreground">Enter your old password and your new password twice.</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Enter your old password and your new password twice.
+              </p>
             </div>
             <button
               type="button"
@@ -190,12 +228,29 @@ function SettingsPage() {
             </button>
           </div>
           <div className="mt-4 space-y-3">
-            <PasswordField label="Old password" value={oldPassword} visible={showPasswords} onChange={setOldPassword} />
-            <PasswordField label="New password" value={newPassword} visible={showPasswords} onChange={setNewPassword} />
-            <PasswordField label="Confirm new password" value={confirmPassword} visible={showPasswords} onChange={setConfirmPassword} />
+            <PasswordField
+              label="Old password"
+              value={oldPassword}
+              visible={showPasswords}
+              onChange={setOldPassword}
+            />
+            <PasswordField
+              label="New password"
+              value={newPassword}
+              visible={showPasswords}
+              onChange={setNewPassword}
+            />
+            <PasswordField
+              label="Confirm new password"
+              value={confirmPassword}
+              visible={showPasswords}
+              onChange={setConfirmPassword}
+            />
             <Button
               onClick={() => changePassword.mutate()}
-              disabled={changePassword.isPending || !oldPassword || !newPassword || !confirmPassword}
+              disabled={
+                changePassword.isPending || !oldPassword || !newPassword || !confirmPassword
+              }
               className="w-full"
               variant="secondary"
             >
@@ -212,7 +267,8 @@ function SettingsPage() {
             <div>
               <h2 className="text-sm font-semibold">KYC verification</h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Trading unlocks after admin approval. Submit clear photos of your ID front, ID back, and a selfie holding the ID.
+                Trading unlocks after admin approval. Submit clear photos of your ID front, ID back,
+                and a selfie holding the ID.
               </p>
             </div>
           </div>
@@ -235,7 +291,11 @@ function SettingsPage() {
                 disabled={submitKyc.isPending || kyc?.status === "pending"}
                 className="w-full gradient-gold"
               >
-                {kyc?.status === "pending" ? "Pending admin review" : submitKyc.isPending ? "Submitting..." : "Submit KYC"}
+                {kyc?.status === "pending"
+                  ? "Pending admin review"
+                  : submitKyc.isPending
+                    ? "Submitting..."
+                    : "Submit KYC"}
               </Button>
             </div>
           )}
@@ -248,7 +308,9 @@ function SettingsPage() {
             </div>
             <div>
               <h2 className="text-sm font-semibold">Download app</h2>
-              <p className="mt-1 text-xs text-muted-foreground">Install MineHub on Android or iPhone from your browser.</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Install MineHub on Android or iPhone from your browser.
+              </p>
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
@@ -269,16 +331,35 @@ function FileField({ label, onChange }: { label: string; onChange: (file: File |
   return (
     <div>
       <Label>{label}</Label>
-      <Input type="file" accept="image/*,application/pdf" onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
+      <Input
+        type="file"
+        accept="image/*,application/pdf"
+        onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+      />
     </div>
   );
 }
 
-function PasswordField({ label, value, visible, onChange }: { label: string; value: string; visible: boolean; onChange: (value: string) => void }) {
+function PasswordField({
+  label,
+  value,
+  visible,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  visible: boolean;
+  onChange: (value: string) => void;
+}) {
   return (
     <div>
       <Label>{label}</Label>
-      <Input type={visible ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)} autoComplete="current-password" />
+      <Input
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete="current-password"
+      />
     </div>
   );
 }
@@ -299,7 +380,13 @@ function KycBadge({ status }: { status: string }) {
               : "bg-muted text-muted-foreground"
       }`}
     >
-      {approved ? <CheckCircle2 className="h-3 w-3" /> : rejected ? <ShieldAlert className="h-3 w-3" /> : <RefreshCcw className="h-3 w-3" />}
+      {approved ? (
+        <CheckCircle2 className="h-3 w-3" />
+      ) : rejected ? (
+        <ShieldAlert className="h-3 w-3" />
+      ) : (
+        <RefreshCcw className="h-3 w-3" />
+      )}
       KYC {status}
     </span>
   );
