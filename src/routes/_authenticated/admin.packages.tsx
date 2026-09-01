@@ -8,7 +8,12 @@ import { AdminShell } from "@/components/layout/admin-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { adminDeletePackage, adminGetPackages, adminUpsertPackage } from "@/lib/admin.functions";
+import {
+  adminDeletePackage,
+  adminGetPackages,
+  adminListPackagePurchases,
+  adminUpsertPackage,
+} from "@/lib/admin.functions";
 import { requireAdminRoute } from "@/lib/admin-route";
 
 export const Route = createFileRoute("/_authenticated/admin/packages")({
@@ -48,10 +53,21 @@ const empty: PkgForm = {
 function PackagesPage() {
   const qc = useQueryClient();
   const listFn = useServerFn(adminGetPackages);
+  const purchasesFn = useServerFn(adminListPackagePurchases);
   const upsertFn = useServerFn(adminUpsertPackage);
   const deleteFn = useServerFn(adminDeletePackage);
   const { data } = useQuery({ queryKey: ["admin-packages"], queryFn: () => listFn() });
+  const { data: purchases } = useQuery({
+    queryKey: ["admin-package-purchases"],
+    queryFn: () => purchasesFn(),
+  });
   const [form, setForm] = useState<PkgForm>(empty);
+  const activeCount = (purchases ?? []).filter((p: any) => p.real_status === "active").length;
+  const depletedCount = (purchases ?? []).filter((p: any) => p.real_status === "depleted").length;
+  const completedCount = (purchases ?? []).filter((p: any) => p.real_status === "completed").length;
+  const expectedDaily = (purchases ?? [])
+    .filter((p: any) => p.counts_expected_outflow)
+    .reduce((sum: number, p: any) => sum + Number(p.packages?.daily_payout ?? 0), 0);
 
   const save = useMutation({
     mutationFn: () => upsertFn({ data: form }),
@@ -98,7 +114,7 @@ function PackagesPage() {
     setForm({
       ...form,
       payout_mode: mode,
-      duration_days: mode === "locked" ? 45 : 60,
+      duration_days: mode === "locked" ? 60 : 45,
       daily_payout: mode === "locked" ? 0 : form.daily_payout,
       maturity_return_rate:
         mode === "locked" ? Math.max(form.maturity_return_rate ?? 1.3, 1.25) : 1,
@@ -198,8 +214,8 @@ function PackagesPage() {
                   value={form.payout_mode ?? "daily"}
                   onChange={(e) => handleModeChange(e.target.value as PkgForm["payout_mode"])}
                 >
-                  <option value="daily">Daily 60d</option>
-                  <option value="locked">Locked 45d</option>
+                  <option value="daily">Daily</option>
+                  <option value="locked">Locked</option>
                 </select>
               </div>
               <div>
@@ -294,6 +310,114 @@ function PackagesPage() {
           </div>
         </div>
       </div>
+
+      <div className="mt-4 glass-card overflow-hidden rounded-2xl">
+        <div className="flex flex-col gap-3 border-b border-border/60 px-4 py-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Client package ledger</h3>
+            <div className="text-xs text-muted-foreground">
+              Active packages count in expected outflow only while their expiry date is still ahead.
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-2 text-center text-[11px]">
+            <MiniStat label="Active" value={activeCount} tone="text-success" />
+            <MiniStat label="Depleted" value={depletedCount} tone="text-warning" />
+            <MiniStat label="Completed" value={completedCount} />
+            <MiniStat
+              label="Daily outflow"
+              value={`KES ${expectedDaily.toLocaleString()}`}
+              tone="text-primary"
+            />
+          </div>
+        </div>
+        <div className="hidden grid-cols-[1.3fr_1.2fr_82px_82px_96px_96px_90px_104px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground lg:grid">
+          <div>Client</div>
+          <div>Package</div>
+          <div>Mode</div>
+          <div>Status</div>
+          <div>Purchased</div>
+          <div>Expires</div>
+          <div>Paid out</div>
+          <div>Outflow</div>
+        </div>
+        {(purchases ?? []).length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+            No package purchases yet.
+          </div>
+        ) : (
+          (purchases ?? []).map((p: any) => (
+            <div
+              key={p.id}
+              className="grid gap-2 border-b border-border/40 px-4 py-3 text-sm lg:grid-cols-[1.3fr_1.2fr_82px_82px_96px_96px_90px_104px] lg:items-center"
+            >
+              <div>
+                <div className="font-medium">{p.profile?.full_name ?? "Unnamed client"}</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {p.profile?.phone ?? p.profile?.email ?? p.user_id}
+                </div>
+              </div>
+              <div>
+                <div className="font-medium">
+                  {p.packages?.code} - {p.packages?.name}
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  KES {Number(p.packages?.price ?? 0).toLocaleString()} -{" "}
+                  {Number(p.packages?.duration_days ?? 0)} days
+                </div>
+              </div>
+              <div className="text-xs capitalize text-primary">
+                {p.packages?.payout_mode ?? "daily"}
+              </div>
+              <div>
+                <StatusPill status={p.real_status} />
+                {p.real_status === "active" ? (
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    {p.remaining_days}d left
+                  </div>
+                ) : null}
+              </div>
+              <DateCell value={p.purchased_at} />
+              <DateCell value={p.expires_at} />
+              <div>KES {Number(p.total_paid_out ?? 0).toLocaleString()}</div>
+              <div
+                className={
+                  p.counts_expected_outflow ? "font-semibold text-success" : "text-muted-foreground"
+                }
+              >
+                {p.counts_expected_outflow
+                  ? `KES ${Number(p.packages?.daily_payout ?? 0).toLocaleString()}/day`
+                  : "No"}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </AdminShell>
+  );
+}
+
+function MiniStat({ label, value, tone = "text-foreground" }: any) {
+  return (
+    <div className="rounded-lg bg-muted/40 px-3 py-2">
+      <div className="uppercase text-muted-foreground">{label}</div>
+      <div className={`font-semibold ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const cls =
+    status === "active"
+      ? "bg-success/15 text-success"
+      : status === "depleted"
+        ? "bg-warning/15 text-warning"
+        : "bg-muted text-muted-foreground";
+
+  return <span className={`rounded-full px-2 py-0.5 text-[10px] uppercase ${cls}`}>{status}</span>;
+}
+
+function DateCell({ value }: { value: string }) {
+  return (
+    <div className="text-xs text-muted-foreground">{new Date(value).toLocaleDateString()}</div>
   );
 }

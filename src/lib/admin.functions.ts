@@ -249,6 +249,41 @@ export const adminGetPackages = createServerFn({ method: "GET" })
     return data ?? [];
   });
 
+export const adminListPackagePurchases = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const admin = await requireAdmin(context.userId);
+    const { data: purchases } = await admin
+      .from("user_packages")
+      .select("*, packages(*)")
+      .order("purchased_at", { ascending: false })
+      .limit(500);
+    const userIds = [...new Set((purchases ?? []).map((p) => p.user_id))];
+    const { data: profiles } = userIds.length
+      ? await admin.from("profiles").select("id,full_name,email,phone").in("id", userIds)
+      : { data: [] };
+    const profileMap = new Map((profiles ?? []).map((p) => [p.id, p]));
+    const now = Date.now();
+
+    return (purchases ?? []).map((p: any) => {
+      const expiresAt = new Date(p.expires_at);
+      const expired = expiresAt.getTime() <= now;
+      const realStatus = p.status === "active" && expired ? "depleted" : p.status;
+      const remainingDays =
+        p.status === "active" && !expired
+          ? Math.ceil((expiresAt.getTime() - now) / (24 * 3600 * 1000))
+          : 0;
+
+      return {
+        ...p,
+        profile: profileMap.get(p.user_id) ?? null,
+        real_status: realStatus,
+        remaining_days: remainingDays,
+        counts_expected_outflow: p.status === "active" && !expired,
+      };
+    });
+  });
+
 export const adminUpsertPackage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(
@@ -489,11 +524,13 @@ export const adminGetAccounts = createServerFn({ method: "GET" })
     // Coverage ratio: house cash vs client liability
     const coverageRatio = clientLiability > 0 ? houseBalance / clientLiability : null;
 
-    // compute expected outflow from active client packages
+    // Compute expected outflow from active, unexpired daily packages only.
+    const nowIso = new Date().toISOString();
     const { data: activePkgs } = await admin
       .from("user_packages")
       .select("packages(daily_payout)")
-      .eq("status", "active");
+      .eq("status", "active")
+      .gt("expires_at", nowIso);
     const expectedDaily = (activePkgs ?? []).reduce(
       (s: number, p: any) => s + Number(p.packages?.daily_payout ?? 0),
       0,

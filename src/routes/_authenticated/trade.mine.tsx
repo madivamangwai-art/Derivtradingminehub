@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   getPackageMaturityReturnRate,
@@ -9,6 +10,7 @@ import {
   purchasePackage,
 } from "@/lib/app.functions";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Coins, Clock, TrendingUp, Gift } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/trade/mine")({ component: MinePage });
@@ -21,12 +23,26 @@ const tierColors: Record<string, string> = {
   diamond: "from-cyan-300 via-sky-400 to-blue-500",
   platinum: "from-fuchsia-400 via-rose-400 to-amber-300",
 };
+const packageGroups = [
+  { value: "locked-60", label: "Locked 60 days" },
+  { value: "daily-45", label: "Daily 45 days" },
+  { value: "daily-30", label: "Daily 30 days" },
+] as const;
+type PackageGroup = (typeof packageGroups)[number]["value"];
+
+function getPackageGroup(pkg: any): PackageGroup {
+  const mode = getPackagePayoutMode(pkg);
+  if (mode === "locked") return "locked-60";
+  return Number(pkg.duration_days) === 30 ? "daily-30" : "daily-45";
+}
 
 function MinePage() {
   const qc = useQueryClient();
   const listFn = useServerFn(listPackages);
   const buyFn = useServerFn(purchasePackage);
+  const [activeGroup, setActiveGroup] = useState<PackageGroup>("locked-60");
   const { data: pkgs } = useQuery({ queryKey: ["packages"], queryFn: () => listFn() });
+  const visiblePackages = (pkgs ?? []).filter((p: any) => getPackageGroup(p) === activeGroup);
   const buy = useMutation({
     mutationFn: (id: string) => buyFn({ data: { package_id: id } }),
     onSuccess: () => {
@@ -38,7 +54,17 @@ function MinePage() {
 
   return (
     <div className="space-y-3">
-      {(pkgs ?? []).map((p: any) => {
+      <Tabs value={activeGroup} onValueChange={(value) => setActiveGroup(value as PackageGroup)}>
+        <TabsList className="grid h-auto w-full grid-cols-3 rounded-xl">
+          {packageGroups.map((group) => (
+            <TabsTrigger key={group.value} value={group.value} className="min-h-10 text-xs">
+              {group.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
+      {visiblePackages.map((p: any) => {
         const mode = getPackagePayoutMode(p);
         const totalReturn =
           mode === "locked"
@@ -56,7 +82,10 @@ function MinePage() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-xs font-bold uppercase opacity-80">
-                    {p.code} - {mode === "locked" ? "45 day locked" : "60 day daily"}
+                    {p.code} -{" "}
+                    {mode === "locked"
+                      ? `${p.duration_days} day locked`
+                      : `${p.duration_days} day daily`}
                   </div>
                   <div className="text-lg font-bold">{p.name}</div>
                 </div>
@@ -95,7 +124,7 @@ function MinePage() {
                 <span className="font-semibold text-primary">
                   {mode === "locked"
                     ? "Locked until maturity"
-                    : `${dailyRate.toFixed(1)}% daily for 60 days`}
+                    : `${dailyRate.toFixed(1)}% daily for ${p.duration_days} days`}
                 </span>
               </div>
               <div className="mt-2 flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-xs">
@@ -123,6 +152,11 @@ function MinePage() {
           </div>
         );
       })}
+      {visiblePackages.length === 0 ? (
+        <div className="glass-card rounded-2xl p-6 text-center text-sm text-muted-foreground">
+          No active packages in this group yet.
+        </div>
+      ) : null}
     </div>
   );
 }
