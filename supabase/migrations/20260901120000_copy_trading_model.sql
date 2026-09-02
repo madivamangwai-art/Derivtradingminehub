@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS public.copy_trade_signals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   code TEXT NOT NULL UNIQUE,
   trade_type TEXT NOT NULL CHECK (trade_type IN ('daily', 'locked7', 'locked30')),
-  profit_rate NUMERIC(8,4) NOT NULL DEFAULT 0.0160,
+  profit_rate NUMERIC(8,4) NOT NULL DEFAULT 0.1500,
   valid_from TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at TIMESTAMPTZ NOT NULL,
   active BOOLEAN NOT NULL DEFAULT true,
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS public.copy_trades (
   code_entered TEXT NOT NULL,
   trade_type TEXT NOT NULL CHECK (trade_type IN ('daily', 'locked7', 'locked30')),
   amount NUMERIC(14,2) NOT NULL,
-  profit_rate NUMERIC(8,4) NOT NULL DEFAULT 0.0160,
+  profit_rate NUMERIC(8,4) NOT NULL DEFAULT 0.1500,
   opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   closes_at TIMESTAMPTZ NOT NULL,
   last_profit_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -34,7 +34,7 @@ ALTER TABLE public.red_packet_claims
   ADD COLUMN IF NOT EXISTS amount_awarded NUMERIC(14,2) NOT NULL DEFAULT 0;
 
 ALTER TABLE public.withdrawals
-  ADD COLUMN IF NOT EXISTS fee_rate NUMERIC(8,4) NOT NULL DEFAULT 0.2000;
+  ADD COLUMN IF NOT EXISTS fee_rate NUMERIC(8,4) NOT NULL DEFAULT 0.3200;
 
 CREATE INDEX IF NOT EXISTS idx_copy_trade_signals_type_active
   ON public.copy_trade_signals(trade_type, active, expires_at);

@@ -82,8 +82,8 @@ function CopyTradingPage() {
   const manualSignal = {
     name: "Signal Trading",
     role: "Manual Code",
-    oneDay: "+1.6%",
-    sevenDay: "+11.2%",
+    oneDay: "+15%",
+    sevenDay: "+105%",
     color: "bg-foreground",
     avatar_url: "",
     bio: "Enter a signal code from the admin signal desk and choose your copy trading cycle.",
@@ -103,7 +103,7 @@ function CopyTradingPage() {
   const isSignalTrade = selectedAnalyst?.source === "signal";
   const selectedMinAmount = Number(selectedAnalyst?.min_copy_amount ?? 1);
   const selectedMaxAmount = Number(selectedAnalyst?.max_copy_amount ?? 0);
-  const expectedProfit = Number(amount || 0) * Number(data?.profitRate ?? 0.016);
+  const expectedProfit = Number(amount || 0) * Number(data?.profitRate ?? 0.15);
   const kycApproved = !!data?.kycApproved;
   const amountBelowMinimum = Number(amount || 0) > 0 && Number(amount) < selectedMinAmount;
   const amountAboveMaximum =

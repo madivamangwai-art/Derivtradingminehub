@@ -108,7 +108,7 @@ function Landing() {
                 <div className="mt-4 rounded-xl bg-primary/10 p-3">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Expected profit</span>
-                    <span className="font-bold text-success">1.6%</span>
+                    <span className="font-bold text-success">15%</span>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-background">
                     <div className="h-full w-2/3 rounded-full bg-primary" />

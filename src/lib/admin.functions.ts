@@ -20,7 +20,7 @@ type AnalystInput = {
   sort_order: number;
 };
 
-const COPY_TRADE_PROFIT_RATE = 0.016;
+const COPY_TRADE_PROFIT_RATE = 0.15;
 const ANALYST_AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 
 async function ensureAnalystAvatarBucket(admin: any) {
@@ -615,6 +615,40 @@ export const adminGenerateCopyTradeSignal = createServerFn({ method: "POST" })
       .single();
     if (error) throw error;
     return signal;
+  });
+
+export const adminSetCopyTradeResultOverride = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { trade_id: string; result_override?: "win" | "loss" | null }) =>
+    z
+      .object({
+        trade_id: z.string().uuid(),
+        result_override: z.enum(["win", "loss"]).nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const admin = await requireAdmin(context.userId);
+    const { data: trade, error: tradeError } = await admin
+      .from("copy_trades")
+      .select("id,status")
+      .eq("id", data.trade_id)
+      .maybeSingle();
+    if (tradeError) throw tradeError;
+    if (!trade) throw new Error("Copy trade not found.");
+    if (trade.status !== "open") throw new Error("Only active copy trades can be overridden.");
+
+    const override = data.result_override ?? null;
+    const { error } = await admin
+      .from("copy_trades")
+      .update({
+        result_override: override,
+        result_overridden_by: override ? context.userId : null,
+        result_overridden_at: override ? new Date().toISOString() : null,
+      })
+      .eq("id", data.trade_id);
+    if (error) throw error;
+    return { ok: true, result_override: override };
   });
 
 export const adminUpsertPackage = createServerFn({ method: "POST" })

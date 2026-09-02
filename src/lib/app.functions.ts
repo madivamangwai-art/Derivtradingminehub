@@ -22,7 +22,7 @@ function money(amount: number) {
   return Math.round(Number(amount) * 100) / 100;
 }
 
-const COPY_TRADE_PROFIT_RATE = 0.016;
+const COPY_TRADE_PROFIT_RATE = 0.15;
 const DAILY_COPY_TRADE_MINUTES = 30;
 const DIRECT_TRADE_PROFIT_REFERRAL_RATE = 0.03;
 const IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
@@ -181,10 +181,15 @@ export async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
       signalExpiresAt !== null && signalExpiresAt <= now
         ? Math.min(closesAt, signalExpiresAt)
         : closesAt;
+    const resultOverride =
+      trade.result_override === "win" || trade.result_override === "loss"
+        ? trade.result_override
+        : null;
     let credit = 0;
     let status = "open";
     let lastProfitIso = trade.last_profit_at;
-    const hasWinningSignal = !!trade.signal_id;
+    const hasWinningSignal =
+      resultOverride === "win" || (!!trade.signal_id && resultOverride !== "loss");
 
     if (!hasWinningSignal) {
       if (!closeReached) continue;
@@ -200,7 +205,10 @@ export async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
         user_id: trade.user_id,
         kind: "copy_trade_loss",
         amount: 0,
-        description: `Closed ${getCopyTradeLabel(trade.trade_type)} as a loss`,
+        description:
+          resultOverride === "loss"
+            ? `Closed ${getCopyTradeLabel(trade.trade_type)} as an admin-set loss`
+            : `Closed ${getCopyTradeLabel(trade.trade_type)} as a loss`,
         ref_id: trade.id,
       });
       settled++;
@@ -270,9 +278,11 @@ export async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
       amount: credit,
       description:
         status === "won"
-          ? signalExpired
-            ? `Closed ${getCopyTradeLabel(trade.trade_type)} because signal code expired`
-            : `Closed ${getCopyTradeLabel(trade.trade_type)}`
+          ? resultOverride === "win"
+            ? `Closed ${getCopyTradeLabel(trade.trade_type)} as an admin-set win`
+            : signalExpired
+              ? `Closed ${getCopyTradeLabel(trade.trade_type)} because signal code expired`
+              : `Closed ${getCopyTradeLabel(trade.trade_type)}`
           : `Daily profit from ${getCopyTradeLabel(trade.trade_type)}`,
       ref_id: trade.id,
     });
@@ -961,7 +971,7 @@ export const getWalletData = createServerFn({ method: "GET" })
     };
   });
 
-export const WITHDRAWAL_FEE_RATE = 0.2;
+export const WITHDRAWAL_FEE_RATE = 0.32;
 const STALE_WITHDRAWAL_HOURS = 24;
 
 async function expireStalePendingWithdrawals(supabaseAdmin: any) {

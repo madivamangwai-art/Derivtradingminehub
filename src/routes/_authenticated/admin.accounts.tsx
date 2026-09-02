@@ -196,7 +196,7 @@ function Page() {
               icon={ArrowUpFromLine}
               label="Paid out to clients (net)"
               value={fmt(data.totals.paidOutNet)}
-              hint="After 20% fee retained"
+              hint="After 32% fee retained"
             />
             <Stat
               icon={Sparkles}

@@ -1,7 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Copy, ImageUp, Pencil, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Copy,
+  ImageUp,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Save,
+  SlidersHorizontal,
+  Trash2,
+  XCircle,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AdminShell } from "@/components/layout/admin-shell";
@@ -13,6 +24,7 @@ import {
   adminDeleteCopyTradeAnalyst,
   adminGenerateCopyTradeSignal,
   adminGetCopyTrading,
+  adminSetCopyTradeResultOverride,
   adminUploadCopyTradeAnalystAvatar,
   adminUpsertCopyTradeAnalyst,
 } from "@/lib/admin.functions";
@@ -67,6 +79,7 @@ function CopyTradingAdminPage() {
   const upsertAnalystFn = useServerFn(adminUpsertCopyTradeAnalyst);
   const uploadAvatarFn = useServerFn(adminUploadCopyTradeAnalystAvatar);
   const deleteAnalystFn = useServerFn(adminDeleteCopyTradeAnalyst);
+  const setTradeOverrideFn = useServerFn(adminSetCopyTradeResultOverride);
   const { data } = useQuery({ queryKey: ["admin-copy-trading"], queryFn: () => copyTradingFn() });
   const [analystForm, setAnalystForm] = useState<any>(emptyAnalyst);
   const [analystAvatarFile, setAnalystAvatarFile] = useState<File | null>(null);
@@ -131,6 +144,25 @@ function CopyTradingAdminPage() {
     onError: (e: any) => toast.error(e.message ?? "Could not generate signal"),
   });
 
+  const setTradeOverride = useMutation({
+    mutationFn: ({
+      trade_id,
+      result_override,
+    }: {
+      trade_id: string;
+      result_override: "win" | "loss" | null;
+    }) => setTradeOverrideFn({ data: { trade_id, result_override } }),
+    onSuccess: (_result, variables) => {
+      toast.success(
+        variables.result_override
+          ? `Trade set to ${variables.result_override}`
+          : "Trade returned to natural settlement",
+      );
+      refresh();
+    },
+    onError: (e: any) => toast.error(e.message ?? "Could not update trade"),
+  });
+
   return (
     <AdminShell title="Copy Trading Console">
       <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
@@ -138,60 +170,98 @@ function CopyTradingAdminPage() {
           <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
             <div>
               <h2 className="text-sm font-semibold">Analyst profiles</h2>
-              <p className="text-xs text-muted-foreground">These are the profiles clients see on Copy Trading.</p>
+              <p className="text-xs text-muted-foreground">
+                These are the profiles clients see on Copy Trading.
+              </p>
             </div>
-            <Button size="sm" variant="secondary" onClick={() => {
-              setAnalystForm(emptyAnalyst);
-              setAnalystAvatarFile(null);
-            }}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setAnalystForm(emptyAnalyst);
+                setAnalystAvatarFile(null);
+              }}
+            >
               <Plus className="mr-1 h-4 w-4" /> New
             </Button>
           </div>
           <div className="divide-y divide-border/50">
             {(data?.analysts ?? []).map((analyst: any) => (
-              <div key={analyst.id} className="grid gap-3 px-4 py-4 md:grid-cols-[64px_1fr_110px_110px_120px] md:items-center">
+              <div
+                key={analyst.id}
+                className="grid gap-3 px-4 py-4 md:grid-cols-[64px_1fr_110px_110px_120px] md:items-center"
+              >
                 <Avatar analyst={analyst} />
                 <div>
                   <div className="font-semibold">{analyst.name}</div>
                   <div className="text-sm text-muted-foreground">{analyst.title}</div>
-                  <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{analyst.bio}</div>
+                  <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                    {analyst.bio}
+                  </div>
                 </div>
-                <Metric label="1-day" value={`${Number(analyst.one_day_return_rate * 100).toFixed(0)}%`} />
-                <Metric label="7-day" value={`${Number(analyst.seven_day_roi * 100).toFixed(0)}%`} />
+                <Metric
+                  label="1-day"
+                  value={`${Number(analyst.one_day_return_rate * 100).toFixed(0)}%`}
+                />
+                <Metric
+                  label="7-day"
+                  value={`${Number(analyst.seven_day_roi * 100).toFixed(0)}%`}
+                />
                 <div className="flex gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => {
-                    setAnalystForm({
-                      ...analyst,
-                      one_day_return_rate: Number(analyst.one_day_return_rate),
-                      seven_day_roi: Number(analyst.seven_day_roi),
-                      commission_rate: Number(analyst.commission_rate) * 100,
-                      min_copy_amount: Number(analyst.min_copy_amount),
-                      max_copy_amount: analyst.max_copy_amount == null ? null : Number(analyst.max_copy_amount),
-                    });
-                    setAnalystAvatarFile(null);
-                  }}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setAnalystForm({
+                        ...analyst,
+                        one_day_return_rate: Number(analyst.one_day_return_rate),
+                        seven_day_roi: Number(analyst.seven_day_roi),
+                        commission_rate: Number(analyst.commission_rate) * 100,
+                        min_copy_amount: Number(analyst.min_copy_amount),
+                        max_copy_amount:
+                          analyst.max_copy_amount == null ? null : Number(analyst.max_copy_amount),
+                      });
+                      setAnalystAvatarFile(null);
+                    }}
+                  >
                     <Pencil className="h-4 w-4" />
                   </Button>
-                  <Button size="sm" variant="destructive" onClick={() => {
-                    if (confirm(`Delete ${analyst.name}?`)) deleteAnalyst.mutate(analyst.id);
-                  }}>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => {
+                      if (confirm(`Delete ${analyst.name}?`)) deleteAnalyst.mutate(analyst.id);
+                    }}
+                  >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
             ))}
             {(data?.analysts ?? []).length === 0 && (
-              <div className="p-8 text-center text-sm text-muted-foreground">No analyst profiles yet.</div>
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                No analyst profiles yet.
+              </div>
             )}
           </div>
         </section>
 
         <section className="glass-card rounded-2xl p-4">
-          <h2 className="text-sm font-semibold">{analystForm.id ? "Edit analyst" : "New analyst"}</h2>
+          <h2 className="text-sm font-semibold">
+            {analystForm.id ? "Edit analyst" : "New analyst"}
+          </h2>
           <div className="mt-3 space-y-3">
             <div className="grid grid-cols-2 gap-2">
-              <Field label="Name" value={analystForm.name} onChange={(v) => setAnalystForm({ ...analystForm, name: v })} />
-              <Field label="Title" value={analystForm.title} onChange={(v) => setAnalystForm({ ...analystForm, title: v })} />
+              <Field
+                label="Name"
+                value={analystForm.name}
+                onChange={(v) => setAnalystForm({ ...analystForm, name: v })}
+              />
+              <Field
+                label="Title"
+                value={analystForm.title}
+                onChange={(v) => setAnalystForm({ ...analystForm, title: v })}
+              />
             </div>
             <AnalystAvatarField
               currentUrl={analystForm.avatar_url ?? ""}
@@ -200,21 +270,59 @@ function CopyTradingAdminPage() {
             />
             <div>
               <Label>Bio</Label>
-              <Textarea value={analystForm.bio} onChange={(e) => setAnalystForm({ ...analystForm, bio: e.target.value })} />
+              <Textarea
+                value={analystForm.bio}
+                onChange={(e) => setAnalystForm({ ...analystForm, bio: e.target.value })}
+              />
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <NumberField label="1-day return" value={analystForm.one_day_return_rate} step="0.01" onChange={(v) => setAnalystForm({ ...analystForm, one_day_return_rate: v })} />
-              <NumberField label="7-day ROI" value={analystForm.seven_day_roi} step="0.01" onChange={(v) => setAnalystForm({ ...analystForm, seven_day_roi: v })} />
-              <NumberField label="Commission (%)" value={analystForm.commission_rate} step="0.01" onChange={(v) => setAnalystForm({ ...analystForm, commission_rate: v })} />
-              <NumberField label="Min amount" value={analystForm.min_copy_amount} onChange={(v) => setAnalystForm({ ...analystForm, min_copy_amount: v })} />
-              <NumberField label="Max amount" value={analystForm.max_copy_amount ?? 0} onChange={(v) => setAnalystForm({ ...analystForm, max_copy_amount: v || null })} />
-              <NumberField label="Sort order" value={analystForm.sort_order} onChange={(v) => setAnalystForm({ ...analystForm, sort_order: v })} />
+              <NumberField
+                label="1-day return"
+                value={analystForm.one_day_return_rate}
+                step="0.01"
+                onChange={(v) => setAnalystForm({ ...analystForm, one_day_return_rate: v })}
+              />
+              <NumberField
+                label="7-day ROI"
+                value={analystForm.seven_day_roi}
+                step="0.01"
+                onChange={(v) => setAnalystForm({ ...analystForm, seven_day_roi: v })}
+              />
+              <NumberField
+                label="Commission (%)"
+                value={analystForm.commission_rate}
+                step="0.01"
+                onChange={(v) => setAnalystForm({ ...analystForm, commission_rate: v })}
+              />
+              <NumberField
+                label="Min amount"
+                value={analystForm.min_copy_amount}
+                onChange={(v) => setAnalystForm({ ...analystForm, min_copy_amount: v })}
+              />
+              <NumberField
+                label="Max amount"
+                value={analystForm.max_copy_amount ?? 0}
+                onChange={(v) => setAnalystForm({ ...analystForm, max_copy_amount: v || null })}
+              />
+              <NumberField
+                label="Sort order"
+                value={analystForm.sort_order}
+                onChange={(v) => setAnalystForm({ ...analystForm, sort_order: v })}
+              />
             </div>
             <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={analystForm.active} onChange={(e) => setAnalystForm({ ...analystForm, active: e.target.checked })} />
+              <input
+                type="checkbox"
+                checked={analystForm.active}
+                onChange={(e) => setAnalystForm({ ...analystForm, active: e.target.checked })}
+              />
               Active
             </label>
-            <Button onClick={() => saveAnalyst.mutate()} disabled={saveAnalyst.isPending} className="w-full gap-2 gradient-gold">
+            <Button
+              onClick={() => saveAnalyst.mutate()}
+              disabled={saveAnalyst.isPending}
+              className="w-full gap-2 gradient-gold"
+            >
               <Save className="h-4 w-4" /> {saveAnalyst.isPending ? "Uploading..." : "Save analyst"}
             </Button>
           </div>
@@ -267,16 +375,28 @@ function CopyTradingAdminPage() {
           {(data?.signals ?? []).slice(0, 12).map((signal: any) => {
             const active = signal.active && new Date(signal.expires_at).getTime() > Date.now();
             return (
-              <div key={signal.id} className="grid grid-cols-[112px_86px_112px_1fr_96px_88px] items-center gap-2 border-b border-border/40 px-4 py-3 text-sm">
+              <div
+                key={signal.id}
+                className="grid grid-cols-[112px_86px_112px_1fr_96px_88px] items-center gap-2 border-b border-border/40 px-4 py-3 text-sm"
+              >
                 <div className="font-mono font-semibold">{signal.code}</div>
-                <div className="text-xs capitalize text-primary">{String(signal.trade_type).replace("locked", "locked ")}</div>
-                <div className="text-xs font-semibold">KES {Number(signal.min_copy_amount ?? 1).toLocaleString()}</div>
-                <div className="text-xs text-muted-foreground">{new Date(signal.expires_at).toLocaleString()}</div>
+                <div className="text-xs capitalize text-primary">
+                  {String(signal.trade_type).replace("locked", "locked ")}
+                </div>
+                <div className="text-xs font-semibold">
+                  KES {Number(signal.min_copy_amount ?? 1).toLocaleString()}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {new Date(signal.expires_at).toLocaleString()}
+                </div>
                 <StatusPill status={active ? "active" : "expired"} />
-                <button className="inline-flex w-fit items-center gap-1 rounded-md bg-primary/15 px-2 py-1 text-xs text-primary" onClick={() => {
-                  navigator.clipboard?.writeText(signal.code);
-                  toast.success("Copied");
-                }}>
+                <button
+                  className="inline-flex w-fit items-center gap-1 rounded-md bg-primary/15 px-2 py-1 text-xs text-primary"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(signal.code);
+                    toast.success("Copied");
+                  }}
+                >
                   <Copy className="h-3 w-3" /> Copy
                 </button>
               </div>
@@ -290,30 +410,51 @@ function CopyTradingAdminPage() {
           <div>
             <h2 className="text-sm font-semibold">Copy trading ledger</h2>
             <div className="text-xs text-muted-foreground">
-              Open {data?.summary?.openTrades ?? 0} - Won {data?.summary?.wonTrades ?? 0} - Lost {data?.summary?.lostTrades ?? 0}
+              Open {data?.summary?.openTrades ?? 0} - Won {data?.summary?.wonTrades ?? 0} - Lost{" "}
+              {data?.summary?.lostTrades ?? 0}
             </div>
           </div>
-          <Metric label="Open profit exposure" value={`KES ${Number(data?.summary?.openDailyOutflow ?? 0).toLocaleString()}`} />
+          <Metric
+            label="Open profit exposure"
+            value={`KES ${Number(data?.summary?.openDailyOutflow ?? 0).toLocaleString()}`}
+          />
         </div>
-        <div className="hidden grid-cols-[1.2fr_96px_88px_96px_1fr_82px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground lg:grid">
+        <div className="hidden grid-cols-[1.2fr_96px_88px_96px_1fr_104px_210px] gap-2 border-b border-border/60 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground lg:grid">
           <div>Client</div>
           <div>Type</div>
           <div>Amount</div>
           <div>Code</div>
           <div>Closes</div>
           <div>Status</div>
+          <div>Override</div>
         </div>
         {(data?.trades ?? []).map((trade: any) => (
-          <div key={trade.id} className="grid gap-2 border-b border-border/40 px-4 py-3 text-sm lg:grid-cols-[1.2fr_96px_88px_96px_1fr_82px] lg:items-center">
+          <div
+            key={trade.id}
+            className="grid gap-2 border-b border-border/40 px-4 py-3 text-sm lg:grid-cols-[1.2fr_96px_88px_96px_1fr_104px_210px] lg:items-center"
+          >
             <div>
               <div className="font-medium">{trade.profile?.full_name ?? "Unnamed client"}</div>
-              <div className="text-[11px] text-muted-foreground">{trade.profile?.phone ?? trade.profile?.email ?? trade.user_id}</div>
+              <div className="text-[11px] text-muted-foreground">
+                {trade.profile?.phone ?? trade.profile?.email ?? trade.user_id}
+              </div>
             </div>
-            <div className="text-xs capitalize text-primary">{String(trade.trade_type).replace("locked", "locked ")}</div>
+            <div className="text-xs capitalize text-primary">
+              {String(trade.trade_type).replace("locked", "locked ")}
+            </div>
             <div>KES {Number(trade.amount ?? 0).toLocaleString()}</div>
             <div className="font-mono text-xs">{trade.code_entered}</div>
-            <div className="text-xs text-muted-foreground">{new Date(trade.closes_at).toLocaleString()}</div>
+            <div className="text-xs text-muted-foreground">
+              {new Date(trade.closes_at).toLocaleString()}
+            </div>
             <StatusPill status={trade.status} />
+            <TradeOverrideControls
+              trade={trade}
+              disabled={setTradeOverride.isPending}
+              onChange={(result_override) =>
+                setTradeOverride.mutate({ trade_id: trade.id, result_override })
+              }
+            />
           </div>
         ))}
       </section>
@@ -321,7 +462,76 @@ function CopyTradingAdminPage() {
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TradeOverrideControls({
+  trade,
+  disabled,
+  onChange,
+}: {
+  trade: any;
+  disabled?: boolean;
+  onChange: (result: "win" | "loss" | null) => void;
+}) {
+  if (trade.status !== "open") {
+    return (
+      <div className="text-xs text-muted-foreground">
+        {trade.result_override ? `Admin ${trade.result_override}` : "Natural"}
+      </div>
+    );
+  }
+
+  const override =
+    trade.result_override === "win" || trade.result_override === "loss"
+      ? trade.result_override
+      : null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Button
+        type="button"
+        size="sm"
+        variant={override === null ? "secondary" : "outline"}
+        disabled={disabled}
+        onClick={() => onChange(null)}
+        className="h-8 px-2 text-xs"
+      >
+        <RotateCcw className="mr-1 h-3.5 w-3.5" />
+        Natural
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant={override === "win" ? "secondary" : "outline"}
+        disabled={disabled}
+        onClick={() => onChange("win")}
+        className="h-8 px-2 text-xs text-success"
+      >
+        <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+        Win
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant={override === "loss" ? "secondary" : "outline"}
+        disabled={disabled}
+        onClick={() => onChange("loss")}
+        className="h-8 px-2 text-xs text-destructive"
+      >
+        <XCircle className="mr-1 h-3.5 w-3.5" />
+        Loss
+      </Button>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
   return (
     <div>
       <Label>{label}</Label>
@@ -358,7 +568,11 @@ function AnalystAvatarField({
       <Label>Profile picture</Label>
       <div className="mt-1 flex items-center gap-3 rounded-xl border border-border bg-card p-3">
         <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-muted-foreground">
-          {src ? <img src={src} alt="Analyst preview" className="h-full w-full object-cover" /> : "Photo"}
+          {src ? (
+            <img src={src} alt="Analyst preview" className="h-full w-full object-cover" />
+          ) : (
+            "Photo"
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <Input
@@ -371,7 +585,13 @@ function AnalystAvatarField({
           </div>
         </div>
         {file ? (
-          <Button type="button" size="icon" variant="secondary" onClick={() => onChange(null)} aria-label="Remove selected picture">
+          <Button
+            type="button"
+            size="icon"
+            variant="secondary"
+            onClick={() => onChange(null)}
+            aria-label="Remove selected picture"
+          >
             <Trash2 className="h-4 w-4" />
           </Button>
         ) : (
@@ -382,11 +602,26 @@ function AnalystAvatarField({
   );
 }
 
-function NumberField({ label, value, onChange, step = "1" }: { label: string; value: number; onChange: (value: number) => void; step?: string }) {
+function NumberField({
+  label,
+  value,
+  onChange,
+  step = "1",
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  step?: string;
+}) {
   return (
     <div>
       <Label>{label}</Label>
-      <Input type="number" step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+      <Input
+        type="number"
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
     </div>
   );
 }
@@ -394,7 +629,11 @@ function NumberField({ label, value, onChange, step = "1" }: { label: string; va
 function Avatar({ analyst }: { analyst: any }) {
   return (
     <div className="grid h-14 w-14 place-items-center overflow-hidden rounded-full bg-muted text-lg font-bold">
-      {analyst.avatar_url ? <img src={analyst.avatar_url} alt={analyst.name} className="h-full w-full object-cover" /> : analyst.name.slice(0, 1)}
+      {analyst.avatar_url ? (
+        <img src={analyst.avatar_url} alt={analyst.name} className="h-full w-full object-cover" />
+      ) : (
+        analyst.name.slice(0, 1)
+      )}
     </div>
   );
 }
@@ -448,6 +687,15 @@ function SignalButton({
 }
 
 function StatusPill({ status }: { status: string }) {
-  const cls = status === "active" || status === "won" ? "bg-success/15 text-success" : status === "open" ? "bg-primary/15 text-primary" : status === "lost" ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground";
-  return <span className={`w-fit rounded-full px-2 py-0.5 text-[10px] uppercase ${cls}`}>{status}</span>;
+  const cls =
+    status === "active" || status === "won"
+      ? "bg-success/15 text-success"
+      : status === "open"
+        ? "bg-primary/15 text-primary"
+        : status === "lost"
+          ? "bg-destructive/15 text-destructive"
+          : "bg-muted text-muted-foreground";
+  return (
+    <span className={`w-fit rounded-full px-2 py-0.5 text-[10px] uppercase ${cls}`}>{status}</span>
+  );
 }
