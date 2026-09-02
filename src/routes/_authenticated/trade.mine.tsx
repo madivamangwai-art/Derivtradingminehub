@@ -62,7 +62,11 @@ function CopyTradingPage() {
   const qc = useQueryClient();
   const dataFn = useServerFn(getCopyTradingData);
   const applyFn = useServerFn(applyCopyTrade);
-  const { data } = useQuery({ queryKey: ["copy-trading"], queryFn: () => dataFn() });
+  const { data } = useQuery({
+    queryKey: ["copy-trading"],
+    queryFn: () => dataFn(),
+    refetchInterval: 15_000,
+  });
   const analysts = (data?.analysts?.length ? data.analysts : fallbackAnalysts).map(
     (analyst: any, index: number) => ({
       name: analyst.name,
@@ -435,7 +439,7 @@ function CopyTradingPage() {
                     <MiniStat label="Profit paid" value={fmt(trade.total_profit_paid)} />
                     <MiniStat
                       label={trade.status === "open" ? "Closes" : "Closed"}
-                      value={new Date(trade.closes_at).toLocaleDateString()}
+                      value={new Date(trade.closes_at).toLocaleString()}
                       icon={trade.status === "open" ? Clock : LockKeyhole}
                     />
                   </div>

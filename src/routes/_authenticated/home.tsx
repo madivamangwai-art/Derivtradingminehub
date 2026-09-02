@@ -25,7 +25,11 @@ const fmt = (n: number | string) =>
 function HomePage() {
   const fn = useServerFn(getDashboard);
   const profFn = useServerFn(getMyProfile);
-  const { data, isLoading } = useQuery({ queryKey: ["dashboard"], queryFn: () => fn() });
+  const { data, isLoading } = useQuery({
+    queryKey: ["dashboard"],
+    queryFn: () => fn(),
+    refetchInterval: 15_000,
+  });
   const { data: prof } = useQuery({ queryKey: ["profile"], queryFn: () => profFn() });
   const navigate = useNavigate();
 
