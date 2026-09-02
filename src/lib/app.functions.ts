@@ -126,7 +126,24 @@ function getCopyTradeLabel(type: CopyTradeType) {
   return "30-day locked copy trade";
 }
 
-async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
+function getCopyTradeTermDays(type: CopyTradeType) {
+  if (type === "daily") return 1;
+  if (type === "locked7") return 7;
+  return 30;
+}
+
+function getCopyTradeEarnedProfit(trade: any, effectiveCloseMs: number) {
+  const amount = Number(trade.amount ?? 0);
+  const rate = Number(trade.profit_rate ?? COPY_TRADE_PROFIT_RATE);
+  if (trade.trade_type === "daily") return money(amount * rate);
+
+  const openedAt = new Date(trade.opened_at).getTime();
+  const elapsedDays = Math.max(1, Math.ceil((effectiveCloseMs - openedAt) / 86400000));
+  const earnedDays = Math.min(getCopyTradeTermDays(trade.trade_type), elapsedDays);
+  return money(amount * rate * earnedDays);
+}
+
+export async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
   const now = Date.now();
   let query = supabaseAdmin
     .from("copy_trades")
@@ -136,13 +153,34 @@ async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
   if (userId) query = query.eq("user_id", userId);
 
   const { data: trades } = await query.limit(500);
+  const signalIds = [
+    ...new Set((trades ?? []).map((trade: any) => trade.signal_id).filter(Boolean)),
+  ];
+  const { data: signals } = signalIds.length
+    ? await supabaseAdmin
+        .from("copy_trade_signals")
+        .select("id,active,expires_at")
+        .in("id", signalIds)
+    : { data: [] };
+  const signalMap = new Map((signals ?? []).map((signal: any) => [signal.id, signal]));
+
+  let settled = 0;
+  let expiredSignals = 0;
+
   for (const trade of trades ?? []) {
-    const openedAt = new Date(trade.opened_at).getTime();
     const closesAt = new Date(trade.closes_at).getTime();
     const lastProfitAt = new Date(trade.last_profit_at ?? trade.opened_at).getTime();
     const amount = Number(trade.amount ?? 0);
     const rate = Number(trade.profit_rate ?? COPY_TRADE_PROFIT_RATE);
-    const closeReached = closesAt <= now;
+    const signal = trade.signal_id ? signalMap.get(trade.signal_id) : null;
+    const signalExpiresAt = signal?.expires_at ? new Date(signal.expires_at).getTime() : null;
+    const signalExpired = signalExpiresAt !== null && signalExpiresAt <= now;
+    const signalInactive = signal && signal.active === false;
+    const closeReached = closesAt <= now || signalExpired || signalInactive;
+    const effectiveCloseMs =
+      signalExpiresAt !== null && signalExpiresAt <= now
+        ? Math.min(closesAt, signalExpiresAt)
+        : closesAt;
     let credit = 0;
     let status = "open";
     let lastProfitIso = trade.last_profit_at;
@@ -165,22 +203,35 @@ async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
         description: `Closed ${getCopyTradeLabel(trade.trade_type)} as a loss`,
         ref_id: trade.id,
       });
+      settled++;
       continue;
     }
 
     if (trade.trade_type === "daily") {
       if (!closeReached) continue;
-      credit = money(amount + amount * rate);
+      const profitRemaining = Math.max(
+        0,
+        getCopyTradeEarnedProfit(trade, effectiveCloseMs) - Number(trade.total_profit_paid ?? 0),
+      );
+      credit = money(amount + profitRemaining);
       status = "won";
-      lastProfitIso = trade.closes_at;
+      lastProfitIso = new Date(effectiveCloseMs).toISOString();
     } else {
       const effectiveEnd = Math.min(now, closesAt);
       const elapsedDays = Math.floor((effectiveEnd - lastProfitAt) / 86400000);
       const profit = money(amount * rate * Math.max(0, elapsedDays));
-      credit = closeReached ? money(profit + amount) : profit;
+      const profitRemaining = closeReached
+        ? Math.max(
+            0,
+            getCopyTradeEarnedProfit(trade, effectiveCloseMs) -
+              Number(trade.total_profit_paid ?? 0),
+          )
+        : profit;
+      credit = closeReached ? money(profitRemaining + amount) : profit;
       status = closeReached ? "won" : "open";
-      lastProfitIso =
-        elapsedDays > 0
+      lastProfitIso = closeReached
+        ? new Date(effectiveCloseMs).toISOString()
+        : elapsedDays > 0
           ? new Date(lastProfitAt + elapsedDays * 86400000).toISOString()
           : trade.last_profit_at;
     }
@@ -219,10 +270,13 @@ async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
       amount: credit,
       description:
         status === "won"
-          ? `Closed ${getCopyTradeLabel(trade.trade_type)}`
+          ? signalExpired
+            ? `Closed ${getCopyTradeLabel(trade.trade_type)} because signal code expired`
+            : `Closed ${getCopyTradeLabel(trade.trade_type)}`
           : `Daily profit from ${getCopyTradeLabel(trade.trade_type)}`,
       ref_id: trade.id,
     });
+    if (status === "won") settled++;
 
     if (profitOnly > 0) {
       const { data: prof } = await supabaseAdmin
@@ -267,6 +321,20 @@ async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
       }
     }
   }
+
+  const { data: expired } = await supabaseAdmin
+    .from("copy_trade_signals")
+    .select("id")
+    .eq("active", true)
+    .lte("expires_at", new Date(now).toISOString())
+    .limit(500);
+  const expiredIds = (expired ?? []).map((signal: any) => signal.id);
+  if (expiredIds.length) {
+    await supabaseAdmin.from("copy_trade_signals").update({ active: false }).in("id", expiredIds);
+    expiredSignals = expiredIds.length;
+  }
+
+  return { settled, expiredSignals };
 }
 
 export function getPackagePayoutMode(pkg: any): PackagePayoutMode {

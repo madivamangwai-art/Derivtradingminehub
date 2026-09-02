@@ -10,13 +10,21 @@ export const Route = createFileRoute("/api/public/cron/payouts")({
         if (!secret || provided !== secret) return new Response("Unauthorized", { status: 401 });
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        const { settleCopyTrades } = await import("@/lib/app.functions");
+        const copyTradeSettlement = await settleCopyTrades(supabaseAdmin);
         const { data: settings } = await supabaseAdmin
           .from("treasury_settings")
           .select("payouts_frozen")
           .eq("id", 1)
           .maybeSingle();
         if (settings?.payouts_frozen)
-          return Response.json({ ok: true, frozen: true, completed: 0 });
+          return Response.json({
+            ok: true,
+            frozen: true,
+            completed: 0,
+            copyTradesSettled: copyTradeSettlement.settled,
+            expiredCopyTradeSignals: copyTradeSettlement.expiredSignals,
+          });
         const now = new Date();
         const { data: active } = await supabaseAdmin
           .from("user_packages")
@@ -35,7 +43,12 @@ export const Route = createFileRoute("/api/public/cron/payouts")({
             completed++;
           }
         }
-        return Response.json({ ok: true, completed });
+        return Response.json({
+          ok: true,
+          completed,
+          copyTradesSettled: copyTradeSettlement.settled,
+          expiredCopyTradeSignals: copyTradeSettlement.expiredSignals,
+        });
       },
     },
   },
