@@ -579,16 +579,7 @@ export const adminGenerateCopyTradeSignal = createServerFn({ method: "POST" })
     const now = new Date();
     const expiresAt = new Date(now.getTime() + getSignalDurationMs(data.trade_type));
 
-    if (data.trade_type === "daily") {
-      const start = new Date(now);
-      start.setHours(0, 0, 0, 0);
-      const { count } = await admin
-        .from("copy_trade_signals")
-        .select("id", { count: "exact", head: true })
-        .eq("trade_type", "daily")
-        .gte("created_at", start.toISOString());
-      if ((count ?? 0) >= 4) throw new Error("Daily copy trade codes are limited to 4 per day.");
-    } else {
+    if (data.trade_type !== "daily") {
       const { data: active } = await admin
         .from("copy_trade_signals")
         .select("id")

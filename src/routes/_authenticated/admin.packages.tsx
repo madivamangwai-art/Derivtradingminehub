@@ -338,7 +338,7 @@ function CopyTradingAdminPage() {
           <div className="grid gap-2">
             <SignalButton
               label="Daily 30-minute"
-              hint="Up to 4 codes per day"
+              hint="Unlimited daily codes"
               minAmount={signalMinimums.daily}
               onMinChange={(value) => setSignalMinimums({ ...signalMinimums, daily: value })}
               onClick={() => generateSignal.mutate("daily")}
