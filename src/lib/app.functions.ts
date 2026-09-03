@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { buildWalletActivityItems } from "@/lib/payment-state";
 import { initiateWithdrawalPayout } from "@/lib/mpesa.functions";
-import { reconcilePendingWalletActivity } from "@/lib/payment-reconcile";
+import { markWithdrawalSuccess, reconcilePendingWalletActivity } from "@/lib/payment-reconcile";
 
 // ============ Client-facing server functions ============
 
@@ -854,7 +854,7 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
       await supabaseAdmin
         .from("withdrawals")
         .update({
-          status: payoutAccepted ? "success" : "processing",
+          status: "processing",
           admin_note:
             responseDescription ||
             (payoutAccepted ? "Payout accepted by M-Pesa." : "Payout request sent to M-Pesa."),
@@ -865,27 +865,12 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
         .eq("id", wd.id);
 
       if (payoutAccepted) {
-        const { data: w } = await supabaseAdmin
-          .from("wallets")
-          .select("*")
-          .eq("user_id", userId)
-          .maybeSingle();
-        if (w) {
-          await supabaseAdmin
-            .from("wallets")
-            .update({
-              // deduct gross amount from wallet
-              balance: Number(w.balance) - Number(data.amount),
-              total_withdrawn: Number(w.total_withdrawn ?? 0) + Number(data.amount),
-            })
-            .eq("user_id", userId);
-        }
-        await supabaseAdmin.from("transactions").insert({
-          user_id: userId,
-          kind: "withdrawal",
-          amount: -Number(data.amount),
-          description: `Withdrawal completed`,
-          ref_id: wd.id,
+        await markWithdrawalSuccess(supabaseAdmin, {
+          userId,
+          withdrawalId: wd.id,
+          amount: Number(data.amount),
+          providerReference: conversationId ?? payout?.OriginatorConversationID ?? null,
+          resultDesc: responseDescription || "Payout accepted by M-Pesa.",
         });
         return { ok: true, fee, net, status: "success", withdrawal_id: wd.id };
       }
@@ -930,36 +915,16 @@ export const purchasePackage = createServerFn({ method: "POST" })
       );
     }
 
-    const { data: wallet } = await supabaseAdmin
-      .from("wallets")
-      .select("*")
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (!wallet || Number(wallet.balance) < Number(pkg.price))
-      throw new Error("Insufficient wallet balance. Deposit first.");
-
-    const newBalance = Number(wallet.balance) - Number(pkg.price);
     const expiresAt = new Date(Date.now() + pkg.duration_days * 24 * 3600 * 1000).toISOString();
-
-    const { data: up, error: upErr } = await supabaseAdmin
-      .from("user_packages")
-      .insert({
-        user_id: userId,
-        package_id: pkg.id,
-        expires_at: expiresAt,
-      })
-      .select()
-      .single();
-    if (upErr) throw upErr;
-
-    await supabaseAdmin.from("wallets").update({ balance: newBalance }).eq("user_id", userId);
-    await supabaseAdmin.from("transactions").insert({
-      user_id: userId,
-      kind: "purchase",
-      amount: -Number(pkg.price),
-      description: `Purchased ${pkg.name}`,
-      ref_id: up.id,
+    const { data: up, error: upErr } = await supabaseAdmin.rpc("purchase_package_atomic", {
+      _user_id: userId,
+      _package_id: pkg.id,
+      _price: Number(pkg.price),
+      _expires_at: expiresAt,
+      _purchase_limit: purchaseLimit,
+      _description: `Purchased ${pkg.name}`,
     });
+    if (upErr) throw upErr;
 
     return { ok: true };
   });
@@ -1220,28 +1185,6 @@ export const claimPackagePayout = createServerFn({ method: "POST" })
     const pkg: any = up.packages;
     const pend = computePackageClaim(up);
     if (pend.amount <= 0) throw new Error("Nothing to claim yet. Come back after 01:00.");
-
-    const { data: w } = await supabaseAdmin
-      .from("wallets")
-      .select("*")
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (!w) throw new Error("Wallet missing");
-    await supabaseAdmin
-      .from("wallets")
-      .update({
-        balance: Number(w.balance) + pend.amount,
-        total_earned: Number(w.total_earned) + pend.amount,
-      })
-      .eq("user_id", userId);
-    await supabaseAdmin
-      .from("user_packages")
-      .update({
-        last_payout_at: pend.lastBoundaryIso,
-        total_paid_out: Number(up.total_paid_out) + pend.amount,
-        status: pend.completed ? "completed" : "active",
-      })
-      .eq("id", up.id);
     const pieces = [
       pend.dailyAmount > 0 ? `${pend.days} day${pend.days > 1 ? "s" : ""}` : null,
       pend.principalAmount > 0 ? "principal" : null,
@@ -1249,12 +1192,15 @@ export const claimPackagePayout = createServerFn({ method: "POST" })
     ]
       .filter(Boolean)
       .join(" + ");
-    await supabaseAdmin.from("transactions").insert({
-      user_id: userId,
-      kind: "payout",
-      amount: pend.amount,
-      description: `Claimed ${pieces || "package payout"} - ${pkg.name}`,
-      ref_id: up.id,
+    const { error } = await supabaseAdmin.rpc("claim_package_payout_atomic", {
+      _user_id: userId,
+      _user_package_id: up.id,
+      _amount: pend.amount,
+      _last_boundary_at: pend.lastBoundaryIso,
+      _previous_last_payout_at: up.last_payout_at,
+      _status: pend.completed ? "completed" : "active",
+      _description: `Claimed ${pieces || "package payout"} - ${pkg.name}`,
     });
+    if (error) throw error;
     return { ok: true, amount: pend.amount, days: pend.days };
   });

@@ -5,114 +5,85 @@ function toNumber(value: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
-export async function markDepositSuccess(supabaseAdmin: AdminClient, {
-  userId,
-  depositId,
-  amount,
-  receipt,
-  metadata,
-}: {
-  userId: string;
-  depositId: string;
-  amount: number;
-  receipt?: string | null;
-  metadata?: unknown;
-}) {
-  const { data: dep } = await supabaseAdmin.from("deposits").select("*").eq("id", depositId).maybeSingle();
+export async function markDepositSuccess(
+  supabaseAdmin: AdminClient,
+  {
+    userId,
+    depositId,
+    amount,
+    receipt,
+    metadata,
+    description,
+  }: {
+    userId: string;
+    depositId: string;
+    amount: number;
+    receipt?: string | null;
+    metadata?: unknown;
+    description?: string | null;
+  },
+) {
+  void userId;
+  const { data: dep } = await supabaseAdmin
+    .from("deposits")
+    .select("*")
+    .eq("id", depositId)
+    .maybeSingle();
   if (!dep) return { changed: false, reason: "missing-deposit" };
 
-  const { data: existingTx } = await supabaseAdmin.from("transactions")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("kind", "deposit")
-    .eq("ref_id", depositId)
-    .maybeSingle();
-
-  const shouldCredit = String(dep.status ?? "").toLowerCase() !== "success" || !existingTx;
-
-  if (shouldCredit) {
+  if (String(dep.status ?? "").toLowerCase() !== "success") {
     const amt = toNumber(amount || dep.amount);
-    await supabaseAdmin.from("deposits").update({
-      status: "success",
-      mpesa_receipt: receipt ?? dep.mpesa_receipt ?? null,
-      amount: amt,
-      metadata,
-    }).eq("id", depositId);
-
-    if (!existingTx) {
-      const { data: wallet } = await supabaseAdmin.from("wallets").select("*").eq("user_id", userId).maybeSingle();
-      if (wallet) {
-        await supabaseAdmin.from("wallets").update({
-          balance: toNumber(wallet.balance) + amt,
-          total_deposited: toNumber(wallet.total_deposited) + amt,
-        }).eq("user_id", userId);
-      }
-      await supabaseAdmin.from("transactions").insert({
-        user_id: userId,
-        kind: "deposit",
-        amount: amt,
-        description: `M-Pesa deposit${receipt ? ` ${receipt}` : ""}`.trim(),
-        ref_id: depositId,
-      });
-    }
-    return { changed: true, reason: existingTx ? "status-updated" : "credited" };
+    const { data: result, error } = await supabaseAdmin.rpc("mark_deposit_success_once", {
+      _deposit_id: depositId,
+      _amount: amt,
+      _receipt: receipt ?? dep.mpesa_receipt ?? null,
+      _metadata: metadata ?? dep.metadata ?? null,
+      _description: description ?? `M-Pesa deposit${receipt ? ` ${receipt}` : ""}`.trim(),
+    });
+    if (error) throw error;
+    return result;
   }
 
   return { changed: false, reason: "already-recorded" };
 }
 
-export async function markWithdrawalSuccess(supabaseAdmin: AdminClient, {
-  userId,
-  withdrawalId,
-  amount,
-  metadata,
-  providerReference,
-  resultDesc,
-}: {
-  userId: string;
-  withdrawalId: string;
-  amount: number;
-  metadata?: unknown;
-  providerReference?: string | null;
-  resultDesc?: string | null;
-}) {
-  const { data: wd } = await supabaseAdmin.from("withdrawals").select("*").eq("id", withdrawalId).maybeSingle();
+export async function markWithdrawalSuccess(
+  supabaseAdmin: AdminClient,
+  {
+    userId,
+    withdrawalId,
+    amount,
+    metadata,
+    providerReference,
+    resultDesc,
+  }: {
+    userId: string;
+    withdrawalId: string;
+    amount: number;
+    metadata?: unknown;
+    providerReference?: string | null;
+    resultDesc?: string | null;
+  },
+) {
+  void userId;
+  const { data: wd } = await supabaseAdmin
+    .from("withdrawals")
+    .select("*")
+    .eq("id", withdrawalId)
+    .maybeSingle();
   if (!wd) return { changed: false, reason: "missing-withdrawal" };
 
-  const { data: existingTx } = await supabaseAdmin.from("transactions")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("kind", "withdrawal")
-    .eq("ref_id", withdrawalId)
-    .maybeSingle();
-
-  const shouldDebit = String(wd.status ?? "").toLowerCase() !== "success" || !existingTx;
-  if (shouldDebit) {
+  if (String(wd.status ?? "").toLowerCase() !== "success") {
     const amt = toNumber(amount || wd.amount);
-    const { data: wallet } = await supabaseAdmin.from("wallets").select("*").eq("user_id", userId).maybeSingle();
-    if (wallet) {
-      await supabaseAdmin.from("wallets").update({
-        balance: toNumber(wallet.balance) - amt,
-        total_withdrawn: toNumber(wallet.total_withdrawn) + amt,
-      }).eq("user_id", userId);
-    }
-    await supabaseAdmin.from("withdrawals").update({
-      status: "success",
-      admin_note: resultDesc ? String(resultDesc) : "Payout completed.",
-      provider_reference: providerReference ?? null,
-      metadata,
-    }).eq("id", withdrawalId);
-
-    if (!existingTx) {
-      await supabaseAdmin.from("transactions").insert({
-        user_id: userId,
-        kind: "withdrawal",
-        amount: -amt,
-        description: "Withdrawal completed",
-        ref_id: withdrawalId,
-      });
-    }
-    return { changed: true, reason: existingTx ? "status-updated" : "debited" };
+    const { data: result, error } = await supabaseAdmin.rpc("mark_withdrawal_success_once", {
+      _withdrawal_id: withdrawalId,
+      _amount: amt,
+      _metadata: metadata ?? wd.metadata ?? null,
+      _provider_reference: providerReference ?? null,
+      _admin_note: resultDesc ? String(resultDesc) : "Payout completed.",
+    });
+    if (error) throw error;
+    return result;
   }
 
   return { changed: false, reason: "already-recorded" };
@@ -120,15 +91,26 @@ export async function markWithdrawalSuccess(supabaseAdmin: AdminClient, {
 
 export async function reconcilePendingWalletActivity(supabaseAdmin: AdminClient, userId: string) {
   const [{ data: deposits }, { data: withdrawals }] = await Promise.all([
-    supabaseAdmin.from("deposits").select("*").eq("user_id", userId).in("status", ["pending", "processing"]).order("created_at", { ascending: false }),
-    supabaseAdmin.from("withdrawals").select("*").eq("user_id", userId).in("status", ["pending", "processing"]).order("created_at", { ascending: false }),
+    supabaseAdmin
+      .from("deposits")
+      .select("*")
+      .eq("user_id", userId)
+      .in("status", ["pending", "processing"])
+      .order("created_at", { ascending: false }),
+    supabaseAdmin
+      .from("withdrawals")
+      .select("*")
+      .eq("user_id", userId)
+      .in("status", ["pending", "processing"])
+      .order("created_at", { ascending: false }),
   ]);
 
   let depositUpdates = 0;
   let withdrawalUpdates = 0;
 
   for (const dep of deposits ?? []) {
-    let { data: existingTx } = await supabaseAdmin.from("transactions")
+    let { data: existingTx } = await supabaseAdmin
+      .from("transactions")
       .select("id")
       .eq("user_id", userId)
       .eq("kind", "deposit")
@@ -138,7 +120,8 @@ export async function reconcilePendingWalletActivity(supabaseAdmin: AdminClient,
     if (!existingTx) {
       const from = new Date(new Date(dep.created_at).getTime() - 60 * 1000).toISOString();
       const to = new Date(new Date(dep.created_at).getTime() + 5 * 60 * 1000).toISOString();
-      const { data: fuzzy } = await supabaseAdmin.from("transactions")
+      const { data: fuzzy } = await supabaseAdmin
+        .from("transactions")
         .select("id,created_at,amount,ref_id")
         .eq("user_id", userId)
         .eq("kind", "deposit")
@@ -155,7 +138,8 @@ export async function reconcilePendingWalletActivity(supabaseAdmin: AdminClient,
   }
 
   for (const wd of withdrawals ?? []) {
-    let { data: existingTx } = await supabaseAdmin.from("transactions")
+    let { data: existingTx } = await supabaseAdmin
+      .from("transactions")
       .select("id")
       .eq("user_id", userId)
       .eq("kind", "withdrawal")
@@ -164,7 +148,8 @@ export async function reconcilePendingWalletActivity(supabaseAdmin: AdminClient,
     if (!existingTx) {
       const from = new Date(new Date(wd.created_at).getTime() - 60 * 1000).toISOString();
       const to = new Date(new Date(wd.created_at).getTime() + 5 * 60 * 1000).toISOString();
-      const { data: fuzzy } = await supabaseAdmin.from("transactions")
+      const { data: fuzzy } = await supabaseAdmin
+        .from("transactions")
         .select("id,created_at,amount,ref_id")
         .eq("user_id", userId)
         .eq("kind", "withdrawal")

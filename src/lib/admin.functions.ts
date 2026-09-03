@@ -6,6 +6,7 @@ import {
   getPackagePayoutMode,
   settleCopyTrades,
 } from "@/lib/app.functions";
+import { markDepositSuccess, markWithdrawalSuccess } from "@/lib/payment-reconcile";
 
 type CopyTradeType = "daily" | "locked7" | "locked30";
 type AnalystInput = {
@@ -167,28 +168,14 @@ export const adminApproveDeposit = createServerFn({ method: "POST" })
     if (!dep) throw new Error("Not found");
     if (dep.status !== "pending") throw new Error("Already processed");
     if (data.approve) {
-      const { data: w } = await admin
-        .from("wallets")
-        .select("*")
-        .eq("user_id", dep.user_id)
-        .maybeSingle();
-      if (w) {
-        await admin
-          .from("wallets")
-          .update({
-            balance: Number(w.balance) + Number(dep.amount),
-            total_deposited: Number(w.total_deposited) + Number(dep.amount),
-          })
-          .eq("user_id", dep.user_id);
-        await admin.from("transactions").insert({
-          user_id: dep.user_id,
-          kind: "deposit",
-          amount: Number(dep.amount),
-          description: "Deposit approved",
-          ref_id: dep.id,
-        });
-      }
-      await admin.from("deposits").update({ status: "success" }).eq("id", dep.id);
+      await markDepositSuccess(admin, {
+        userId: dep.user_id,
+        depositId: dep.id,
+        amount: Number(dep.amount),
+        receipt: dep.mpesa_receipt ?? null,
+        metadata: dep.metadata ?? null,
+        description: "Deposit approved",
+      });
     } else {
       await admin.from("deposits").update({ status: "failed" }).eq("id", dep.id);
     }
@@ -233,30 +220,14 @@ export const adminUpdateWithdrawal = createServerFn({ method: "POST" })
     if (!wd) throw new Error("Not found");
 
     if (data.status === "paid" && wd.status !== "paid") {
-      // deduct wallet
-      const { data: w } = await admin
-        .from("wallets")
-        .select("*")
-        .eq("user_id", wd.user_id)
-        .maybeSingle();
-      if (w && Number(w.balance) >= Number(wd.amount)) {
-        await admin
-          .from("wallets")
-          .update({
-            balance: Number(w.balance) - Number(wd.amount),
-            total_withdrawn: Number(w.total_withdrawn) + Number(wd.amount),
-          })
-          .eq("user_id", wd.user_id);
-        await admin.from("transactions").insert({
-          user_id: wd.user_id,
-          kind: "withdrawal",
-          amount: -Number(wd.amount),
-          description: "Withdrawal paid",
-          ref_id: wd.id,
-        });
-      } else {
-        throw new Error("Client wallet has insufficient balance");
-      }
+      await markWithdrawalSuccess(admin, {
+        userId: wd.user_id,
+        withdrawalId: wd.id,
+        amount: Number(wd.amount),
+        metadata: wd.metadata ?? null,
+        providerReference: wd.provider_reference ?? null,
+        resultDesc: data.note || "Withdrawal paid",
+      });
     }
     await admin
       .from("withdrawals")
@@ -764,36 +735,23 @@ export const adminAdjustWallet = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const admin = await requireAdmin(context.userId);
-    const { data: w } = await admin
-      .from("wallets")
-      .select("*")
-      .eq("user_id", data.user_id)
-      .maybeSingle();
-    if (!w) throw new Error("Wallet not found");
-    const newBal = Number(w.balance) + data.amount;
-    if (newBal < 0) throw new Error("Adjustment would put balance below zero");
     const isCredit = data.amount >= 0;
-    if (isCredit) {
-      await admin
-        .from("wallets")
-        .update({ balance: newBal, total_deposited: Number(w.total_deposited) + data.amount })
-        .eq("user_id", data.user_id);
-    } else {
-      await admin
-        .from("wallets")
-        .update({
-          balance: newBal,
-          total_withdrawn: Number(w.total_withdrawn) + Math.abs(data.amount),
-        })
-        .eq("user_id", data.user_id);
-    }
+    const { data: wallet, error } = await admin.rpc("adjust_wallet_atomic", {
+      _user_id: data.user_id,
+      _balance_delta: data.amount,
+      _earned_delta: 0,
+      _deposited_delta: isCredit ? data.amount : 0,
+      _withdrawn_delta: isCredit ? 0 : Math.abs(data.amount),
+      _require_sufficient_balance: true,
+    });
+    if (error) throw new Error(error.message || "Adjustment would put balance below zero");
     await admin.from("transactions").insert({
       user_id: data.user_id,
       kind: isCredit ? "deposit" : "withdrawal",
       amount: data.amount,
       description: data.note || (isCredit ? "M-Pesa deposit" : "M-Pesa withdrawal"),
     });
-    return { ok: true, new_balance: newBal };
+    return { ok: true, new_balance: Number(wallet.balance) };
   });
 
 export const adminListRedPackets = createServerFn({ method: "GET" })
