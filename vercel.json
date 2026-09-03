@@ -5,7 +5,7 @@
   "crons": [
     {
       "path": "/api/public/cron/payouts",
-      "schedule": "* * * * *"
+      "schedule": "5 22 * * *"
     }
   ]
 }
