@@ -24,7 +24,6 @@ function money(amount: number) {
 
 const COPY_TRADE_PROFIT_RATE = 0.15;
 const DAILY_COPY_TRADE_MINUTES = 30;
-const DIRECT_TRADE_PROFIT_REFERRAL_RATE = 0.03;
 const IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 const KYC_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"] as const;
 
@@ -126,225 +125,34 @@ function getCopyTradeLabel(type: CopyTradeType) {
   return "30-day locked copy trade";
 }
 
-function getCopyTradeTermDays(type: CopyTradeType) {
-  if (type === "daily") return 1;
-  if (type === "locked7") return 7;
-  return 30;
-}
-
-function getCopyTradeEarnedProfit(trade: any, effectiveCloseMs: number) {
-  const amount = Number(trade.amount ?? 0);
-  const rate = Number(trade.profit_rate ?? COPY_TRADE_PROFIT_RATE);
-  if (trade.trade_type === "daily") return money(amount * rate);
-
-  const openedAt = new Date(trade.opened_at).getTime();
-  const elapsedDays = Math.max(1, Math.ceil((effectiveCloseMs - openedAt) / 86400000));
-  const earnedDays = Math.min(getCopyTradeTermDays(trade.trade_type), elapsedDays);
-  return money(amount * rate * earnedDays);
-}
-
 export async function settleCopyTrades(supabaseAdmin: any, userId?: string) {
-  const now = Date.now();
-  let query = supabaseAdmin
-    .from("copy_trades")
-    .select("*")
-    .eq("status", "open")
-    .lte("last_profit_at", new Date(now).toISOString());
-  if (userId) query = query.eq("user_id", userId);
-
-  const { data: trades } = await query.limit(500);
-  const signalIds = [
-    ...new Set((trades ?? []).map((trade: any) => trade.signal_id).filter(Boolean)),
-  ];
-  const { data: signals } = signalIds.length
-    ? await supabaseAdmin
-        .from("copy_trade_signals")
-        .select("id,active,expires_at")
-        .in("id", signalIds)
-    : { data: [] };
-  const signalMap = new Map((signals ?? []).map((signal: any) => [signal.id, signal]));
-
+  const batchSize = userId ? 1000 : 5000;
+  const maxBatches = userId ? 3 : 20;
   let settled = 0;
   let expiredSignals = 0;
+  let profitEvents = 0;
+  let lossEvents = 0;
 
-  for (const trade of trades ?? []) {
-    const closesAt = new Date(trade.closes_at).getTime();
-    const lastProfitAt = new Date(trade.last_profit_at ?? trade.opened_at).getTime();
-    const amount = Number(trade.amount ?? 0);
-    const rate = Number(trade.profit_rate ?? COPY_TRADE_PROFIT_RATE);
-    const signal = trade.signal_id ? signalMap.get(trade.signal_id) : null;
-    const signalExpiresAt = signal?.expires_at ? new Date(signal.expires_at).getTime() : null;
-    const signalExpired = signalExpiresAt !== null && signalExpiresAt <= now;
-    const signalInactive = signal && signal.active === false;
-    const closeReached = closesAt <= now || signalExpired || signalInactive;
-    const effectiveCloseMs =
-      signalExpiresAt !== null && signalExpiresAt <= now
-        ? Math.min(closesAt, signalExpiresAt)
-        : closesAt;
-    const resultOverride =
-      trade.result_override === "win" || trade.result_override === "loss"
-        ? trade.result_override
-        : null;
-    let credit = 0;
-    let status = "open";
-    let lastProfitIso = trade.last_profit_at;
-    const hasWinningSignal =
-      resultOverride === "win" || (!!trade.signal_id && resultOverride !== "loss");
-
-    if (!hasWinningSignal) {
-      if (!closeReached) continue;
-
-      await supabaseAdmin
-        .from("copy_trades")
-        .update({
-          status: "lost",
-          last_profit_at: trade.closes_at,
-        })
-        .eq("id", trade.id);
-      await supabaseAdmin.from("transactions").insert({
-        user_id: trade.user_id,
-        kind: "copy_trade_loss",
-        amount: 0,
-        description:
-          resultOverride === "loss"
-            ? `Closed ${getCopyTradeLabel(trade.trade_type)} as an admin-set loss`
-            : `Closed ${getCopyTradeLabel(trade.trade_type)} as a loss`,
-        ref_id: trade.id,
-      });
-      settled++;
-      continue;
-    }
-
-    if (trade.trade_type === "daily") {
-      if (!closeReached) continue;
-      const profitRemaining = Math.max(
-        0,
-        getCopyTradeEarnedProfit(trade, effectiveCloseMs) - Number(trade.total_profit_paid ?? 0),
-      );
-      credit = money(amount + profitRemaining);
-      status = "won";
-      lastProfitIso = new Date(effectiveCloseMs).toISOString();
-    } else {
-      const effectiveEnd = Math.min(now, closesAt);
-      const elapsedDays = Math.floor((effectiveEnd - lastProfitAt) / 86400000);
-      const profit = money(amount * rate * Math.max(0, elapsedDays));
-      const profitRemaining = closeReached
-        ? Math.max(
-            0,
-            getCopyTradeEarnedProfit(trade, effectiveCloseMs) -
-              Number(trade.total_profit_paid ?? 0),
-          )
-        : profit;
-      credit = closeReached ? money(profitRemaining + amount) : profit;
-      status = closeReached ? "won" : "open";
-      lastProfitIso = closeReached
-        ? new Date(effectiveCloseMs).toISOString()
-        : elapsedDays > 0
-          ? new Date(lastProfitAt + elapsedDays * 86400000).toISOString()
-          : trade.last_profit_at;
-    }
-
-    if (credit <= 0 && status === "open") continue;
-
-    const { data: wallet } = await supabaseAdmin
-      .from("wallets")
-      .select("balance,total_earned")
-      .eq("user_id", trade.user_id)
-      .maybeSingle();
-    if (!wallet) continue;
-
-    const profitOnly =
-      trade.trade_type === "daily"
-        ? money(amount * rate)
-        : Math.max(0, credit - (closeReached ? amount : 0));
-    await supabaseAdmin
-      .from("wallets")
-      .update({
-        balance: money(Number(wallet.balance) + credit),
-        total_earned: money(Number(wallet.total_earned ?? 0) + profitOnly),
-      })
-      .eq("user_id", trade.user_id);
-    await supabaseAdmin
-      .from("copy_trades")
-      .update({
-        status,
-        last_profit_at: lastProfitIso,
-        total_profit_paid: money(Number(trade.total_profit_paid ?? 0) + profitOnly),
-      })
-      .eq("id", trade.id);
-    await supabaseAdmin.from("transactions").insert({
-      user_id: trade.user_id,
-      kind: "copy_trade_profit",
-      amount: credit,
-      description:
-        status === "won"
-          ? resultOverride === "win"
-            ? `Closed ${getCopyTradeLabel(trade.trade_type)} as an admin-set win`
-            : signalExpired
-              ? `Closed ${getCopyTradeLabel(trade.trade_type)} because signal code expired`
-              : `Closed ${getCopyTradeLabel(trade.trade_type)}`
-          : `Daily profit from ${getCopyTradeLabel(trade.trade_type)}`,
-      ref_id: trade.id,
+  for (let i = 0; i < maxBatches; i++) {
+    const { data, error } = await supabaseAdmin.rpc("settle_copy_trades_batch", {
+      _user_id: userId ?? null,
+      _batch_size: batchSize,
     });
-    if (status === "won") settled++;
+    if (error) throw error;
 
-    if (profitOnly > 0) {
-      const { data: prof } = await supabaseAdmin
-        .from("profiles")
-        .select("referred_by")
-        .eq("id", trade.user_id)
-        .maybeSingle();
-      if (prof?.referred_by) {
-        const bonus = money(profitOnly * DIRECT_TRADE_PROFIT_REFERRAL_RATE);
-        if (bonus > 0) {
-          const { data: refWallet } = await supabaseAdmin
-            .from("wallets")
-            .select("balance,total_earned")
-            .eq("user_id", prof.referred_by)
-            .maybeSingle();
-          if (refWallet) {
-            await supabaseAdmin
-              .from("wallets")
-              .update({
-                balance: money(Number(refWallet.balance ?? 0) + bonus),
-                total_earned: money(Number(refWallet.total_earned ?? 0) + bonus),
-              })
-              .eq("user_id", prof.referred_by);
-            await supabaseAdmin.from("referral_earnings").insert({
-              referrer_id: prof.referred_by,
-              referred_user_id: trade.user_id,
-              amount: bonus,
-              package_id: null,
-              user_package_id: null,
-              source_trade_id: trade.id,
-              source: "trade_profit",
-            });
-            await supabaseAdmin.from("transactions").insert({
-              user_id: prof.referred_by,
-              kind: "direct_income",
-              amount: bonus,
-              description: `3% direct income from referred copy trade profit`,
-              ref_id: trade.id,
-            });
-          }
-        }
-      }
-    }
+    const result = data ?? {};
+    const batchSettled = Number(result.settled ?? 0);
+    const batchProfitEvents = Number(result.profitEvents ?? 0);
+    const batchLossEvents = Number(result.lossEvents ?? 0);
+    settled += batchSettled;
+    expiredSignals += Number(result.expiredSignals ?? 0);
+    profitEvents += batchProfitEvents;
+    lossEvents += batchLossEvents;
+
+    if (batchSettled + batchProfitEvents + batchLossEvents < batchSize) break;
   }
 
-  const { data: expired } = await supabaseAdmin
-    .from("copy_trade_signals")
-    .select("id")
-    .eq("active", true)
-    .lte("expires_at", new Date(now).toISOString())
-    .limit(500);
-  const expiredIds = (expired ?? []).map((signal: any) => signal.id);
-  if (expiredIds.length) {
-    await supabaseAdmin.from("copy_trade_signals").update({ active: false }).in("id", expiredIds);
-    expiredSignals = expiredIds.length;
-  }
-
-  return { settled, expiredSignals };
+  return { settled, expiredSignals, profitEvents, lossEvents };
 }
 
 export function getPackagePayoutMode(pkg: any): PackagePayoutMode {
@@ -784,13 +592,6 @@ export const applyCopyTrade = createServerFn({ method: "POST" })
     if (source === "analyst" && !data.analyst_id) {
       throw new Error("Choose a partner portfolio before applying.");
     }
-    const { data: wallet } = await supabaseAdmin
-      .from("wallets")
-      .select("*")
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (!wallet || Number(wallet.balance) < data.amount) throw new Error("Insufficient balance");
-
     const { data: signal } =
       source === "signal"
         ? await supabaseAdmin
@@ -840,39 +641,23 @@ export const applyCopyTrade = createServerFn({ method: "POST" })
       );
     }
 
-    await supabaseAdmin
-      .from("wallets")
-      .update({ balance: money(Number(wallet.balance) - data.amount) })
-      .eq("user_id", userId);
-
     const closesAt = new Date(Date.now() + getCopyTradeDurationMs(data.trade_type)).toISOString();
-    const { data: trade, error } = await supabaseAdmin
-      .from("copy_trades")
-      .insert({
-        user_id: userId,
-        signal_id: signal?.id ?? null,
-        code_entered: code,
-        trade_type: data.trade_type,
-        amount: data.amount,
-        profit_rate: COPY_TRADE_PROFIT_RATE,
-        closes_at: closesAt,
-        status: "open",
-      })
-      .select()
-      .single();
-    if (error) throw error;
-
-    await supabaseAdmin.from("transactions").insert({
-      user_id: userId,
-      kind: signal ? "copy_trade_open" : "copy_trade_loss",
-      amount: -Number(data.amount),
-      description: signal
-        ? `Opened ${getCopyTradeLabel(data.trade_type)}`
-        : source === "signal"
-          ? `Opened ${getCopyTradeLabel(data.trade_type)} with invalid signal code`
-          : `Opened analyst copy trade without a signal code`,
-      ref_id: trade.id,
+    const openDescription = signal
+      ? `Opened ${getCopyTradeLabel(data.trade_type)}`
+      : source === "signal"
+        ? `Opened ${getCopyTradeLabel(data.trade_type)} with invalid signal code`
+        : `Opened analyst copy trade without a signal code`;
+    const { data: trade, error } = await supabaseAdmin.rpc("open_copy_trade_atomic", {
+      _user_id: userId,
+      _signal_id: signal?.id ?? null,
+      _code_entered: code,
+      _trade_type: data.trade_type,
+      _amount: data.amount,
+      _profit_rate: COPY_TRADE_PROFIT_RATE,
+      _closes_at: closesAt,
+      _description: openDescription,
     });
+    if (error) throw error;
 
     if (!signal) {
       return {

@@ -1,7 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { getPackageMaturityReturnRate, getPackagePayoutMode } from "@/lib/app.functions";
+import {
+  getPackageMaturityReturnRate,
+  getPackagePayoutMode,
+  settleCopyTrades,
+} from "@/lib/app.functions";
 
 type CopyTradeType = "daily" | "locked7" | "locked30";
 type AnalystInput = {
@@ -371,6 +375,7 @@ export const adminGetCopyTrading = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const admin = await requireAdmin(context.userId);
+    await settleCopyTrades(admin);
     const [signalsRes, tradesRes, analystsRes] = await Promise.all([
       admin
         .from("copy_trade_signals")
